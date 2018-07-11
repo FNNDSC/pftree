@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+#
+# (c) 2017 Fetal-Neonatal Neuroimaging & Developmental Science Center
+#                   Boston Children's Hospital
+#
+#              http://childrenshospital.org/FNNDSC/
+#                        dev@babyMRI.org
+#
+
+import sys, os
+sys.path.insert(1, os.path.join(os.path.dirname(__file__), '../pftree'))
+
+import  pftree
+from    argparse            import RawTextHelpFormatter
+from    argparse            import ArgumentParser
+import  pudb
+
+import  pfmisc
+from    pfmisc._colors      import Colors
+from    pfmisc              import other
+
+str_version = "1.0.0"
+str_desc = Colors.CYAN + """
+
+
+        __ _                 
+       / _| |                
+ _ __ | |_| |_ _ __ ___  ___ 
+| '_ \|  _| __| '__/ _ \/ _ \\
+| |_) | | | |_| | |  __/  __/
+| .__/|_|  \__|_|  \___|\___|
+| |                          
+|_|                          
+
+  
+
+                        Path-File tree structure
+
+        Recursively walk down an input directory tree and create a dictionary
+        representation of the path structure. Each tree "key" has a list
+        of files in that corresponding directory in the filesystem. 
+
+                             -- version """ + \
+             Colors.YELLOW + str_version + Colors.CYAN + """ --
+
+
+""" + Colors.NO_COLOUR
+
+def synopsis(ab_shortOnly = False):
+    scriptName = os.path.basename(sys.argv[0])
+    shortSynopsis =  '''
+    NAME
+
+	    %s - Create a dictionary representation of a filesystem tree.
+
+    SYNOPSIS
+
+            %s                                       \\
+                    -I|--inputDir <inputDir>                \\
+                    [-i|--inputFile <inputFile>]            \\
+                    [-d|--outputDir <outputDir>]            \\
+                    [-x|--man]                              \\
+                    [-y|--synopsis]
+
+    BRIEF EXAMPLE
+
+	    %s -l tagList.txt -i slice.dcm
+
+    ''' % (scriptName, scriptName, scriptName)
+
+    description =  '''
+    DESCRIPTION
+
+        `%s` extracts the header information of DICOM files and echoes to
+        stdout as well as to an output report-type file -- this can be a raw
+        output, a json-type output, or html-type output.
+
+        The script accepts an <inputDir>, and then from this point an os.walk
+        is performed to extract all the subdirs. Each subdir is examined for
+        DICOM files (in the simplest sense by a file extension mapping) and 
+        either the head, tail, middle (or other indexed) file is examined for
+        its tag information.
+
+        Optionally, the tag list can be constrained either by passing a
+        <tagFile> containing a line-by-line list of tags to query, or
+        by passing a comma separated list of tags directly.
+
+        Finally, an image conversion can also be performed (and embedded
+        within the output html file, if an html conversion is specified).
+
+    ARGS
+
+        -I|--inputDir <inputDir>
+        Input DICOM directory to examine. By default, the first file in this
+        directory is examined for its tag information. There is an implicit
+        assumption that each <inputDir> contains a single DICOM series.
+
+        -i|--inputFile <inputFile>
+        An optional <inputFile> specified relative to the <inputDir>. If 
+        specified, then do not perform a directory walk, but convert only 
+        this file.
+
+        [-O|--outputDir <outputDir>]
+        The directory to contain all output files.
+
+        [-x|--man]
+        Show full help.
+
+        [-y|--synopsis]
+        Show brief help.
+
+        -v|--verbosity <level>
+        Set the app verbosity level. 
+
+             -1: No internal output.
+              0: All internal output.
+
+    EXAMPLES
+
+        o See https://github.com/FNNDSC/scripts/blob/master/dicomTag.py for more help and source.
+
+    ''' % (scriptName)
+    if ab_shortOnly:
+        return shortSynopsis
+    else:
+        return shortSynopsis + description
+
+
+
+parser  = ArgumentParser(description = str_desc, formatter_class = RawTextHelpFormatter)
+
+
+parser.add_argument("-I", "--inputDir",
+                    help    = "input dir",
+                    dest    = 'inputDir',
+                    default = '')
+parser.add_argument("-i", "--inputFile",
+                    help    = "input file",
+                    dest    = 'inputFile',
+                    default = '')
+parser.add_argument("-O", "--outputDir",
+                    help    = "output image directory",
+                    dest    = 'outputDir',
+                    default = '.')
+parser.add_argument("-x", "--man",
+                    help    = "man",
+                    dest    = 'man',
+                    action  = 'store_true',
+                    default = False)
+parser.add_argument("-y", "--synopsis",
+                    help    = "short synopsis",
+                    dest    = 'synopsis',
+                    action  = 'store_true',
+                    default = False)
+parser.add_argument("-v", "--verbosity",
+                    help    = "verbosity level for app",
+                    dest    = 'verbosity',
+                    default = "0")
+parser.add_argument("--printElapsedTime",
+                    help    = "print program run time",
+                    dest    = 'printElapsedTime',
+                    action  = 'store_true',
+                    default = False)
+args = parser.parse_args()
+
+if args.man or args.synopsis:
+    print(str_desc)
+    if args.man:
+        str_help     = synopsis(False)
+    else:
+        str_help     = synopsis(True)
+    print(str_help)
+    sys.exit(1)
+
+pudb.set_trace()
+
+pf_tree             = pftree.pftree(
+                        inputDir            = args.inputDir,
+                        inputFile           = args.inputFile,
+                        outputDir           = args.outputDir,
+                        verbosity           = args.verbosity
+                    )
+
+# And now run it!
+other.tic()
+pf_tree.run()
+if args.printElapsedTime: pf_tree.dp.qprint("Elapsed time = %f seconds" % other.toc())
+sys.exit(0)
