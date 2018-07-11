@@ -11,18 +11,18 @@ def readme():
         return f.read()
 
 setup(
-      name             =   'pfdicomtag',
+      name             =   'pftree',
       version          =   '1.0.0',
-      description      =   '(Python) utility to extract meta data from trees of organized DICOM files.',
+      description      =   '(Python) utility to create dict representations of file system trees.',
       long_description =   readme(),
       author           =   'FNNDSC',
       author_email     =   'dev@babymri.org',
       url              =   'https://github.com/FNNDSC/med2image',
-      packages         =   ['pfdicomtag'],
-      install_requires =   ['pydicom', 'numpy', 'matplotlib', 'pillow', 'pfmisc'],
+      packages         =   ['pftree'],
+      install_requires =   ['pfmisc'],
       #test_suite       =   'nose.collector',
       #tests_require    =   ['nose'],
-      scripts          =   ['bin/pfdicomtag'],
+      scripts          =   ['bin/pftree'],
       license          =   'MIT',
       zip_safe         =   False
 )
