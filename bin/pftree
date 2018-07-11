@@ -57,36 +57,38 @@ def synopsis(ab_shortOnly = False):
 
             %s                                       \\
                     -I|--inputDir <inputDir>                \\
+                    [-r|--relativeDir]                      \\
                     [-i|--inputFile <inputFile>]            \\
                     [-d|--outputDir <outputDir>]            \\
+                    [--stats | --statsReverse]              \\
+                    [--json]                                \\
                     [-x|--man]                              \\
                     [-y|--synopsis]
 
     BRIEF EXAMPLE
 
-	    %s -l tagList.txt -i slice.dcm
+	    %s -I /var/www/html -O /tmp
 
     ''' % (scriptName, scriptName, scriptName)
 
     description =  '''
     DESCRIPTION
 
-        `%s` extracts the header information of DICOM files and echoes to
-        stdout as well as to an output report-type file -- this can be a raw
-        output, a json-type output, or html-type output.
+        `%s` in and of itself is does not really do any work. It is a
+        class that provides the internals for representing file system
+        hierarchies in dictionary form.
 
-        The script accepts an <inputDir>, and then from this point an os.walk
-        is performed to extract all the subdirs. Each subdir is examined for
-        DICOM files (in the simplest sense by a file extension mapping) and 
-        either the head, tail, middle (or other indexed) file is examined for
-        its tag information.
+        Given an <inputDir>, pftree will perform a recursive walk down
+        the directory tree. For each directory that contains files, 
+        `pftree` will create a dictionary key of the directory path,
+        and will store a list of filenames for the key value.
 
-        Optionally, the tag list can be constrained either by passing a
-        <tagFile> containing a line-by-line list of tags to query, or
-        by passing a comma separated list of tags directly.
-
-        Finally, an image conversion can also be performed (and embedded
-        within the output html file, if an html conversion is specified).
+        The core the of the class is a <tree_analysisApply> method, that
+        accepts various kwargs. When called, this method will loop
+        over the dictionary, and for each key (i.e. 'path') will execute
+        a callback method. This callback is passed the dictionary value
+        at that key (i.e. usually just the list of files) as well as
+        all the **kwargs passed to <tree_analysisApply>.
 
     ARGS
 
@@ -95,6 +97,12 @@ def synopsis(ab_shortOnly = False):
         directory is examined for its tag information. There is an implicit
         assumption that each <inputDir> contains a single DICOM series.
 
+        -r|--relativeDir
+        A flag argument. If passed (i.e. True), then the dictionary key values
+        are taken to be relative to the <inputDir>, i.e. the key values
+        will not contain the <inputDir>; otherwise the key values will
+        contain the <inputDir>.
+
         -i|--inputFile <inputFile>
         An optional <inputFile> specified relative to the <inputDir>. If 
         specified, then do not perform a directory walk, but convert only 
@@ -102,6 +110,13 @@ def synopsis(ab_shortOnly = False):
 
         [-O|--outputDir <outputDir>]
         The directory to contain all output files.
+
+        [--stats | --statsReverse]
+        If specified, return some stats to caller -- summary list ordered
+        by number of files in dirs (--statsReverse does a reverse sort).
+
+        [--json]
+        If specified, do a JSON dump of the stats.
 
         [-x|--man]
         Show full help.
@@ -156,11 +171,38 @@ parser.add_argument("-v", "--verbosity",
                     help    = "verbosity level for app",
                     dest    = 'verbosity',
                     default = "0")
+parser.add_argument("-r", "--relativeDir",
+                    help    = "use relative directories",
+                    dest    = 'relativeDir',
+                    action  = 'store_true',
+                    default = False)
+parser.add_argument("--stats",
+                    help    = "show some quick stats",
+                    dest    = 'stats',
+                    action  = 'store_true',
+                    default = False)
+parser.add_argument("--statsReverse",
+                    help    = "show some quick stats (reverse order)",
+                    dest    = 'statsReverse',
+                    action  = 'store_true',
+                    default = False)
+parser.add_argument("--json",
+                    help    = "JSON dump stats",
+                    dest    = 'json',
+                    action  = 'store_true',
+                    default = False)
 parser.add_argument("--printElapsedTime",
                     help    = "print program run time",
                     dest    = 'printElapsedTime',
                     action  = 'store_true',
                     default = False)
+parser.add_argument('--version',
+                    help    = 'if specified, print version number',
+                    dest    = 'b_version',
+                    action  = 'store_true',
+                    default = False)
+
+
 args = parser.parse_args()
 
 if args.man or args.synopsis:
@@ -172,12 +214,20 @@ if args.man or args.synopsis:
     print(str_help)
     sys.exit(1)
 
-pudb.set_trace()
+if args.b_version:
+    print("Version: %s" % str_version)
+    sys.exit(1)
+
+# pudb.set_trace()
 
 pf_tree             = pftree.pftree(
                         inputDir            = args.inputDir,
                         inputFile           = args.inputFile,
                         outputDir           = args.outputDir,
+                        relativeDir         = args.relativeDir,
+                        stats               = args.stats,
+                        statsReverse        = args.statsReverse,
+                        json                = args.json,
                         verbosity           = args.verbosity
                     )
 
