@@ -73,6 +73,10 @@ class pftree(object):
 
         # Flags
         self.b_persistAnalysisResults   = False
+        self.b_relativeDir              = False
+        self.b_stats                    = False
+        self.b_statsReverse             = False
+        self.b_json                     = False
 
         self.dp                         = None
         self.log                        = None
@@ -86,10 +90,14 @@ class pftree(object):
         self.declare_selfvars()
 
         for key, value in kwargs.items():
-            if key == "inputDir":           self.str_inputDir           = value
-            if key == "inputFile":          self.str_inputFile          = value
-            if key == "outputDir":          self.str_outputDir          = value
-            if key == 'verbosity':          self.verbosityLevel         = int(value)
+            if key == "inputDir":       self.str_inputDir   = value
+            if key == "inputFile":      self.str_inputFile  = value
+            if key == "outputDir":      self.str_outputDir  = value
+            if key == 'verbosity':      self.verbosityLevel = int(value)
+            if key == 'relativeDir':    self.b_relativeDir  = bool(value)
+            if key == 'stats':          self.b_stats        = bool(value)
+            if key == 'statsReverse':   self.b_statsReverse = bool(value)
+            if key == 'json':           self.b_json         = bool(value)
 
         # Set logging
         self.dp                        = pfmisc.debug(    
@@ -323,10 +331,63 @@ class pftree(object):
             'status':   True
         }
 
+    def stats_compute(self, *args, **kwargs):
+        """
+        Simply loop over the internal dictionary and
+        echo the list size at each key (i.e. the number
+        of files).
+        """
+        totalElements   = 0
+        totalKeys       = 0
+        l_stats         = []
+
+        for k, v in sorted(self.d_inputTree.items(), 
+                            key         = lambda kv: len(kv[1]),
+                            reverse     = self.b_statsReverse):
+            self.dp.qprint("%000d: %s" % (len(v), k))
+            l_stats.append(["%000d: %s" % (len(v), k)])
+            totalElements   += len(v)
+            totalKeys       += 1
+        return {
+            'status':   True,
+            'dirs':     totalKeys,
+            'files':    totalElements,
+            'l_stats':  l_stats
+        }
+
     def run(self, *args, **kwargs):
         """
         Probe the input tree and print.
         """
-        self.tree_probe(root = self.str_inputDir)
+        str_origDir = os.getcwd()
+        if self.b_relativeDir:
+            os.chdir(self.str_inputDir)
+            str_rootDir     = '.'
+        else:
+            str_rootDir     = self.str_inputDir
 
+        d_probe     = self.tree_probe(      
+            root    = str_rootDir
+        )
+        d_tree      = self.tree_construct(  
+            l_files = d_probe['l_files']
+        )
+
+        d_stats     = {}
+        if self.b_stats or self.b_statsReverse:
+            d_stats     = self.stats_compute()
+
+        if self.b_json:
+            print(json.dumps(d_stats, indent = 4, sort_keys = True))
+
+        if self.b_relativeDir:
+            os.chdir(str_origDir)
+
+        return {
+            'status':   d_probe['status']   and \
+                        d_tree['status'],
+            'd_probe':  d_probe,
+            'd_tree':   d_tree,
+            'd_stats':  d_stats
+        }
         
