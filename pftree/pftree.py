@@ -110,13 +110,6 @@ class pftree(object):
 
         if not len(self.str_inputDir): self.str_inputDir = '.'
 
-        if not os.path.exists(self.str_inputDir):
-            self.dp.qprint(
-                    "input directory either not specified or does not exist.", 
-                    comms = 'error'
-            )
-            error.fatal(self, 'inputDirFail', exitToOS = True, drawBox = True)
-
     def simpleProgress_show(self, index, total, *args):
         str_pretext = ""
         if len(args):
@@ -175,7 +168,7 @@ class pftree(object):
                 self.dp.qprint('Appending files to search space:\n')
                 self.dp.qprint("\n" + self.pp.pformat(l_filesHere))
         return {
-            'status':   True,
+            'status':   b_status,
             'l_dir':    l_dirs,
             'l_files':  l_files
         }
@@ -359,33 +352,47 @@ class pftree(object):
         """
         Probe the input tree and print.
         """
-        str_origDir = os.getcwd()
-        if self.b_relativeDir:
-            os.chdir(self.str_inputDir)
-            str_rootDir     = '.'
-        else:
-            str_rootDir     = self.str_inputDir
-
-        d_probe     = self.tree_probe(      
-            root    = str_rootDir
-        )
-        d_tree      = self.tree_construct(  
-            l_files = d_probe['l_files']
-        )
-
+        b_status    = True
+        d_probe     = {}
+        d_tree      = {}
         d_stats     = {}
-        if self.b_stats or self.b_statsReverse:
-            d_stats     = self.stats_compute()
 
-        if self.b_json:
-            print(json.dumps(d_stats, indent = 4, sort_keys = True))
+        if not os.path.exists(self.str_inputDir):
+            b_status    = False
+            self.dp.qprint(
+                    "input directory either not specified or does not exist.", 
+                    comms = 'error'
+            )
+            error.warn(self, 'inputDirFail', exitToOS = True, drawBox = True)
 
-        if self.b_relativeDir:
-            os.chdir(str_origDir)
+        if b_status:
+            str_origDir = os.getcwd()
+            if self.b_relativeDir:
+                os.chdir(self.str_inputDir)
+                str_rootDir     = '.'
+            else:
+                str_rootDir     = self.str_inputDir
+
+            d_probe     = self.tree_probe(      
+                root    = str_rootDir
+            )
+            b_status    = b_status and d_probe['status']
+            d_tree      = self.tree_construct(  
+                l_files = d_probe['l_files']
+            )
+            b_status    = b_status and d_tree['status']
+            if self.b_stats or self.b_statsReverse:
+                d_stats     = self.stats_compute()
+                b_status    = b_status and d_stats['status']
+
+            if self.b_json:
+                print(json.dumps(d_stats, indent = 4, sort_keys = True))
+
+            if self.b_relativeDir:
+                os.chdir(str_origDir)
 
         return {
-            'status':   d_probe['status']   and \
-                        d_tree['status'],
+            'status':   b_status,
             'd_probe':  d_probe,
             'd_tree':   d_tree,
             'd_stats':  d_stats
