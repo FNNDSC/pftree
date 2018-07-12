@@ -69,6 +69,7 @@ class pftree(object):
         self.str_inputFile              = ''
         self.str_outputDir              = ''
         self.d_inputTree                = {}
+        self.d_inputTreeCallback        = {}
         self.d_outputTree               = {}
 
         # Flags
@@ -177,22 +178,71 @@ class pftree(object):
         """
         Processes the <l_files> list of files from the tree_probe()
         and builds the input/output dictionary structures.
+
+        Optionally execute a constructCallback function, and return
+        results
         """
-        l_files = []
+        l_files                 = []
+        d_constructCallback     = {}
+        fn_constructCallback    = None
         for k, v in kwargs.items():
-            if k == 'l_files':  l_files         = v
+            if k == 'l_files':           l_files                 = v
+            if k == 'constructCallback': fn_constructCallback    = v
+
         index   = 1
         total   = len(l_files)
         for l_series in l_files:
             str_path    = os.path.dirname(l_series[0])
+            l_series    = [ os.path.basename(i) for i in l_series]
             self.simpleProgress_show(index, total, 'tree_construct')
             self.d_inputTree[str_path]  = l_series
+            if fn_constructCallback:
+                kwargs['path']          = str_path
+                d_constructCallback     = fn_constructCallback(l_series, **kwargs)
+                self.d_inputTreeCallback[str_path]  = d_constructCallback
             self.d_outputTree[str_path] = ""
             index += 1
         return {
-            'status':           True,
-            'seriesNumber':     index
+            'status':               True,
+            'd_constructCalback':   d_constructCallback,   
+            'seriesNumber':         index
         }
+
+    @staticmethod
+    def dirsize_get(l_filesWithoutPath, **kwargs):
+        """
+        Sample callback that determines a directory size.
+        """
+
+        def sizeof_fmt(num, suffix='B'):
+            for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+                if abs(num) < 1024.0:
+                    return "%3.1f%s%s" % (num, unit, suffix)
+                num /= 1024.0
+            return "%.1f%s%s" % (num, 'Yi', suffix)        
+
+        str_path    = ""
+        for k,v in kwargs.items():
+            if k == 'path': str_path = v
+
+        d_ret   = {}
+        l_size  = []
+        size    = 0
+        for f in l_filesWithoutPath:
+            str_f   = '%s/%s' % (str_path, f)
+            if not os.path.islink(str_f):
+                try:
+                    size += os.path.getsize(str_f)
+                except:
+                    pass
+        str_size    = sizeof_fmt(size)
+
+        return {
+            'status':       True,
+            'size':         size,
+            'size_human':   str_size
+        }
+
 
     def tree_analysisApply(self, *args, **kwargs):
         """
@@ -334,11 +384,20 @@ class pftree(object):
         totalKeys       = 0
         l_stats         = []
 
-        for k, v in sorted(self.d_inputTree.items(), 
-                            key         = lambda kv: len(kv[1]),
+        # for k, v in sorted(self.d_inputTree.items(), 
+        #                     key         = lambda kv: len(kv[1]),
+        #                     reverse     = self.b_statsReverse):
+        for k, v in sorted(self.d_inputTreeCallback.items(), 
+                            key         = lambda kv: (kv[1]['size']),
                             reverse     = self.b_statsReverse):
-            self.dp.qprint("%000d: %s" % (len(v), k))
-            l_stats.append(["%000d: %s" % (len(v), k)])
+            str_report  = "files: %5d; raw size: %12d; human size: %8s; %s" % (\
+                    len(self.d_inputTree[k]), 
+                    self.d_inputTreeCallback[k]['size'], 
+                    self.d_inputTreeCallback[k]['size_human'], 
+                    k
+            )
+            self.dp.qprint(str_report)
+            l_stats.append(str_report)
             totalElements   += len(v)
             totalKeys       += 1
         return {
@@ -378,7 +437,8 @@ class pftree(object):
             )
             b_status    = b_status and d_probe['status']
             d_tree      = self.tree_construct(  
-                l_files = d_probe['l_files']
+                l_files             = d_probe['l_files'],
+                constructCallback   = self.dirsize_get
             )
             b_status    = b_status and d_tree['status']
             if self.b_stats or self.b_statsReverse:
