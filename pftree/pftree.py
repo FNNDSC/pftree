@@ -209,17 +209,18 @@ class pftree(object):
         }
 
     @staticmethod
+    def sizeof_fmt(num, suffix='B'):
+        for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+            if abs(num) < 1024.0:
+                return "%3.1f%s%s" % (num, unit, suffix)
+            num /= 1024.0
+        return "%.1f%s%s" % (num, 'Yi', suffix)        
+
+    @staticmethod
     def dirsize_get(l_filesWithoutPath, **kwargs):
         """
         Sample callback that determines a directory size.
         """
-
-        def sizeof_fmt(num, suffix='B'):
-            for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
-                if abs(num) < 1024.0:
-                    return "%3.1f%s%s" % (num, unit, suffix)
-                num /= 1024.0
-            return "%.1f%s%s" % (num, 'Yi', suffix)        
 
         str_path    = ""
         for k,v in kwargs.items():
@@ -235,7 +236,7 @@ class pftree(object):
                     size += os.path.getsize(str_f)
                 except:
                     pass
-        str_size    = sizeof_fmt(size)
+        str_size    = pftree.sizeof_fmt(size)
 
         return {
             'status':       True,
@@ -382,6 +383,7 @@ class pftree(object):
         """
         totalElements   = 0
         totalKeys       = 0
+        totalSize       = 0
         l_stats         = []
 
         # for k, v in sorted(self.d_inputTree.items(), 
@@ -400,11 +402,15 @@ class pftree(object):
             l_stats.append(str_report)
             totalElements   += len(v)
             totalKeys       += 1
+            totalSize       += self.d_inputTreeCallback[k]['size']
+        str_totalSize_human = self.sizeof_fmt(totalSize)
         return {
-            'status':   True,
-            'dirs':     totalKeys,
-            'files':    totalElements,
-            'l_stats':  l_stats
+            'status':           True,
+            'dirs':             totalKeys,
+            'files':            totalElements,
+            'totalSize':        totalSize,
+            'totalSize_human':  str_totalSize_human,
+            'l_stats':          l_stats
         }
 
     def run(self, *args, **kwargs):
@@ -443,6 +449,8 @@ class pftree(object):
             b_status    = b_status and d_tree['status']
             if self.b_stats or self.b_statsReverse:
                 d_stats     = self.stats_compute()
+                self.dp.qprint('Total size (raw):   %d' % d_stats['totalSize'])
+                self.dp.qprint('Total size (human): %s' % d_stats['totalSize_human'])
                 b_status    = b_status and d_stats['status']
 
             if self.b_json:
