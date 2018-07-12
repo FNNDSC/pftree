@@ -55,7 +55,7 @@ Command line arguments
 
         [--stats | --statsReverse]
         If specified, return some stats to caller -- summary list ordered
-        by number of files in dirs (--statsReverse does a reverse sort).
+        by directory size (--statsReverse does a reverse sort).
 
         [--json]
         If specified, do a JSON dump of the stats.
@@ -79,7 +79,7 @@ Run on a target tree and output some detail and stats
 
 .. code:: bash
 
-        /pftree         -I /var/www/html                \
+        pftree          -I /var/www/html                \
                         -O /tmp                         \
                         -r                              \
                         --printElapsedTime              \
