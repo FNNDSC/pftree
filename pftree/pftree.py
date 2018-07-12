@@ -421,6 +421,7 @@ class pftree(object):
         d_probe     = {}
         d_tree      = {}
         d_stats     = {}
+        str_error   = ''
 
         if not os.path.exists(self.str_inputDir):
             b_status    = False
@@ -429,6 +430,7 @@ class pftree(object):
                     comms = 'error'
             )
             error.warn(self, 'inputDirFail', exitToOS = True, drawBox = True)
+            str_error   = 'error captured while accessing input directory'
 
         if b_status:
             str_origDir = os.getcwd()
@@ -460,9 +462,10 @@ class pftree(object):
                 os.chdir(str_origDir)
 
         return {
-            'status':   b_status,
-            'd_probe':  d_probe,
-            'd_tree':   d_tree,
-            'd_stats':  d_stats
+            'status':       b_status,
+            'd_probe':      d_probe,
+            'd_tree':       d_tree,
+            'd_stats':      d_stats,
+            'str_error':    str_error
         }
         
