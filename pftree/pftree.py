@@ -339,7 +339,7 @@ class pftree(object):
         total   = len(self.d_inputTree.keys())
         for path, data in self.d_inputTree.items():
             self.simpleProgress_show(index, total, fn_analysiscallback.__name__)
-            d_analysis          = fn_analysiscallback(data, **kwargs)
+            d_analysis          = fn_analysiscallback((path, data), **kwargs)
             if len(str_applyKey):
                 d_tree[path]    = d_analysis[str_applyKey]
             else:
@@ -370,7 +370,7 @@ class pftree(object):
         for path, d_analysis in self.d_outputTree.items():
             self.simpleProgress_show(index, total)
             self.dp.qprint("Processing analysis results in output: %s" % path)
-            d_output        = fn_outputcallback(d_analysis, **kwargs)
+            d_output        = fn_outputcallback((path, d_analysis), **kwargs)
         return {
             'status':   True
         }
@@ -386,9 +386,6 @@ class pftree(object):
         totalSize       = 0
         l_stats         = []
 
-        # for k, v in sorted(self.d_inputTree.items(), 
-        #                     key         = lambda kv: len(kv[1]),
-        #                     reverse     = self.b_statsReverse):
         for k, v in sorted(self.d_inputTreeCallback.items(), 
                             key         = lambda kv: (kv[1]['size']),
                             reverse     = self.b_statsReverse):
