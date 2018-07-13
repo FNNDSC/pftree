@@ -34,7 +34,7 @@ by fetching it from PyPI
 Command line arguments
 ----------------------
 
-.. code:: bash
+.. code:: html
 
         -I|--inputDir <inputDir>
         Input DICOM directory to examine. By default, the first file in this
