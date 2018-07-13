@@ -346,7 +346,7 @@ class pftree(object):
                 d_tree[path]    = d_analysis
             if fn_outputcallback:
                 self.simpleProgress_show(index, total, fn_outputcallback.__name__)
-                d_output        = fn_outputcallback(d_analysis, **kwargs)
+                d_output        = fn_outputcallback((path, d_analysis), **kwargs)
             if not b_persistAnalysisResults:
                 d_tree[path]    = d_output
             index += 1
