@@ -5,6 +5,7 @@ Quick Overview
 --------------
 
 -  Create a dictionary representation of a filesystem hierarchy.
+-  Optionally report some stats on the hierarchy (esp size of each directory).
 
 Overview
 --------
@@ -33,7 +34,8 @@ by fetching it from PyPI
 Command line arguments
 ----------------------
 
-::
+.. code:: bash
+
         -I|--inputDir <inputDir>
         Input DICOM directory to examine. By default, the first file in this
         directory is examined for its tag information. There is an implicit
