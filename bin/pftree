@@ -19,7 +19,7 @@ import  pfmisc
 from    pfmisc._colors      import Colors
 from    pfmisc              import other
 
-str_version = "1.2.2"
+str_version = "1.4.0"
 str_desc = Colors.CYAN + """
 
 
@@ -59,8 +59,9 @@ def synopsis(ab_shortOnly = False):
                     -I|--inputDir <inputDir>                \\
                     [-r|--relativeDir]                      \\
                     [-i|--inputFile <inputFile>]            \\
-                    [-d|--outputDir <outputDir>]            \\
+                    [-O|--outputDir <outputDir>]            \\
                     [--stats | --statsReverse]              \\
+                    [-t|--threads <threads>]                \\
                     [--json]                                \\
                     [-x|--man]                              \\
                     [-y|--synopsis]
@@ -97,13 +98,13 @@ def synopsis(ab_shortOnly = False):
         directory is examined for its tag information. There is an implicit
         assumption that each <inputDir> contains a single DICOM series.
 
-        -r|--relativeDir
+        [-r|--relativeDir]
         A flag argument. If passed (i.e. True), then the dictionary key values
         are taken to be relative to the <inputDir>, i.e. the key values
         will not contain the <inputDir>; otherwise the key values will
         contain the <inputDir>.
 
-        -i|--inputFile <inputFile>
+        [-i|--inputFile <inputFile>]
         An optional <inputFile> specified relative to the <inputDir>. If 
         specified, then do not perform a directory walk, but convert only 
         this file.
@@ -114,6 +115,23 @@ def synopsis(ab_shortOnly = False):
         [--stats | --statsReverse]
         If specified, return some stats to caller -- summary list ordered
         by directory size (--statsReverse does a reverse sort).
+
+        [-t|--threads <numThreads>]
+        If specified, break the innermost analysis loop into <numThreads>
+        threads. Please note the following caveats:
+
+            * Only thread if you have a high CPU analysis loop. Since
+              most of the operations of this module will entail reading
+              and writing DICOM files, and since these operations are 
+              the bulk of the execution time, adding threading will not
+              really help.
+
+            * Threading will change the nature of the innermost looping
+              across the problem domain, with the result that *all* of the
+              problem data will be read into memory! That means all of 
+              DICOMs across all of the subdirs! In non-threading mode,
+              only DICOMs from a single directory at a time are read
+              and then discarded.
 
         [--json]
         If specified, do a JSON dump of the stats.
@@ -132,7 +150,13 @@ def synopsis(ab_shortOnly = False):
 
     EXAMPLES
 
-        o See https://github.com/FNNDSC/scripts/blob/master/dicomTag.py for more help and source.
+        $ pftree            -I /var/www/html                \
+                            -O /tmp                         \
+                            -r                              \
+                            --printElapsedTime              \
+                            --stats -v -1 --json
+
+        Use also a '-v 0' for more output.
 
     ''' % (scriptName)
     if ab_shortOnly:
@@ -170,6 +194,10 @@ parser.add_argument("-y", "--synopsis",
 parser.add_argument("-v", "--verbosity",
                     help    = "verbosity level for app",
                     dest    = 'verbosity',
+                    default = "0")
+parser.add_argument("-t", "--threads",
+                    help    = "number of threads for innermost loop processing",
+                    dest    = 'threads',
                     default = "0")
 parser.add_argument("-r", "--relativeDir",
                     help    = "use relative directories",
@@ -227,6 +255,7 @@ pf_tree             = pftree.pftree(
                         relativeDir         = args.relativeDir,
                         stats               = args.stats,
                         statsReverse        = args.statsReverse,
+                        threads             = args.threads,
                         json                = args.json,
                         verbosity           = args.verbosity
                     )
