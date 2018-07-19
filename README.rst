@@ -59,6 +59,23 @@ Command line arguments
         If specified, return some stats to caller -- summary list ordered
         by directory size (--statsReverse does a reverse sort).
 
+        [-t|--threads <numThreads>]
+        If specified, break the innermost analysis loop into <numThreads>
+        threads. Please note the following caveats:
+
+            * Only thread if you have a high CPU analysis loop. Since
+              most of the operations of this module will entail reading
+              and writing DICOM files, and since these operations are 
+              the bulk of the execution time, adding threading will not
+              really help.
+
+            * Threading will change the nature of the innermost looping
+              across the problem domain, with the result that *all* of the
+              problem data will be read into memory! That means all of 
+              DICOMs across all of the subdirs! In non-threading mode,
+              only DICOMs from a single directory at a time are read
+              and then discarded.
+
         [--json]
         If specified, do a JSON dump of the stats.
 
@@ -87,3 +104,4 @@ Run on a target tree and output some detail and stats
                         --printElapsedTime              \
                         --stats -v -1 --json
 
+Use also a '-v 0' for more output.
