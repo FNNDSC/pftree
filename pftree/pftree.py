@@ -13,6 +13,8 @@ from        pfmisc              import  error
 
 import      pudb
 
+import      threading
+
 class pftree(object):
     """
     A class that constructs a dictionary represenation of the paths in a filesystem. 
@@ -64,6 +66,9 @@ class pftree(object):
         # Object containing this class
         self.within                     = None
 
+        # Thread number
+        self.numThreads                 = 1
+
         # Directory and filenames
         self.str_inputDir               = ''
         self.str_inputFile              = ''
@@ -95,6 +100,7 @@ class pftree(object):
             if key == "inputFile":      self.str_inputFile  = value
             if key == "outputDir":      self.str_outputDir  = value
             if key == 'verbosity':      self.verbosityLevel = int(value)
+            if key == 'threads':        self.numThreads     = int(value)
             if key == 'relativeDir':    self.b_relativeDir  = bool(value)
             if key == 'stats':          self.b_stats        = bool(value)
             if key == 'statsReverse':   self.b_statsReverse = bool(value)
@@ -245,33 +251,40 @@ class pftree(object):
         }
 
 
-    def tree_analysisApply(self, *args, **kwargs):
+    def tree_process(self, *args, **kwargs):
         """
 
         kwargs:
 
-            analysiscallback        = self.fn_filterFileList
-            outputcallback          = self.fn_outputprocess
+            inputReadCallback       = callback to perform inputIO (read)
+            analysisCallback        = callback to perform analysis
+            outputWriteCallback     = callback to perform outputIO (write)
             applyResultsTo          = 'inputTree'|'outputTree'
             applyKey                = <arbitrary key in analysis dictionary>
             persistAnalysisResults  = True|False
 
-        Loop over all the "paths" in <inputTree> and process the file list
-        contained in each "path", optionally also calling an outputcallback
-        to store results as part of the analysis loop.
+        This method performs the actual work of this class. Operations are
+        divided into three callback groups:
 
+            * Input reading
+            * Actual processing
+            * Output writing
+
+        The method will loop over all the "paths" in <inputTree>, and for each 
+        "path" call the inputRead/dataAnalysis/outputWrite callbacks in order.
+
+        If this pftree object is initialized as multi-threaded, only the 
+        dataAnalysis callback is actually threaded. The read and write
+        file IO callbacks are run sequentially for efficiency (threaded 
+        file IO is horribly inefficient and actually degrades in linear
+        proportion to the number of threads).
+        
         The results of the analysis are typically stored in the corresponding
         path in the <outputTree> (unless 'persistAnalysisResults' == False); 
         however, results can also be applied to the <inputTree> (see below).
 
-        The 'self.within' object is called on a method
-
-            self.within.callbackfunc(<list_files>)
-
-        that applies some analysis to the list of files provided to the method.
-        This method must return a dictionary. Typically this dictionary is
-        saved to the <outputTree> at the corresponding path location of the
-        <inputTree>. If 
+        The results of the dataAnalysisCallback are usually stored in the
+        outputTree at a path corresponding to the inputTree. If 
 
             kwargs:     applyTo     = 'inputTree'
 
@@ -287,13 +300,14 @@ class pftree(object):
         Thus, an enclosing class can call this method to, for example, filter
         the list of files at each path location by:
 
-            pftree.tree_analysisApply(  
-                        analysiscallback    = self.fn_filterFileList,
-                        applyResultsTo      = 'inputTree',
-                        applyKey            = 'files'
+            pftree.tree_process(  
+                                ...
+                        analysisCallback        =  fn_filterFileList,
+                        applyResultsTo          = 'inputTree',
+                        applyKey                = 'files'
             )
 
-        will apply the callback function, self.fn_filterFileList and return some
+        will apply the callback function, fn_filterFileList and return some
         filtered list in its return dictionary at key == 'files'. This 
         dictionary value is stored in the <inputTree>.
 
@@ -318,16 +332,200 @@ class pftree(object):
         is called on the dictionary result of the analysiscallback method. The 
         result of this outputcallback is saved to the <outputTree> instead.
 
+        Note that threading the analysisCallback will effectively result in 
+        output results being persistent across the entire tree (since the execution
+        loop finishes each step sequenitally: all input IO, thread analysis, all
+        output IO).
+
         """
         str_applyResultsTo          = ""
         str_applyKey                = ""
-        fn_analysiscallback         = None
-        fn_outputcallback           = None
+        fn_inputReadCallback        = None
+        fn_analysisCallback         = None
+        fn_outputWriteCallback      = None
         b_persistAnalysisResults    = False
         d_tree                      = self.d_outputTree
+
+        def t_analyze(path, data, index, **kwargs):
+            """
+            Core "kernel" that multithreadeds the analysis callback
+            """
+            nonlocal    total
+            nonlocal    d_tree
+            nonlocal    fn_analysisCallback
+            self.simpleProgress_show(index, total, '%s:%s' % 
+                (threading.currentThread().getName(), fn_analysisCallback.__name__)
+            )
+            d_analysis          = fn_analysisCallback(
+                ('%s/%s' % (self.str_inputDir, path), d_tree[path]), **kwargs
+            )
+            if len(str_applyKey):
+                d_tree[path]    = d_analysis[str_applyKey]
+            else:
+                d_tree[path]    = d_analysis
+            index += 1
+
+        def thread_batch(l_threadFunc, outerLoop, innerLoop, offset):
+            """
+            Fire up a set of threads and wait for them to join
+            the main execution flow
+            """
+            start   = 0
+            join    = 0
+            # First, fire up the space of all the threads...
+            il = lambda f, i, o, l : f + i + o * l
+            for t_o in range(0, outerLoop):
+                for t_i in range(0, innerLoop):
+                    idx = il(offset, t_i, t_o, innerLoop)
+                    l_threadFunc[idx].start()
+                    start += 1
+                    # self.dp.qprint('Started thread %d' % start)
+
+            # for t_o in range(0, outerLoop):
+                for t_i in range(0, innerLoop):
+                    idx = il(offset, t_i, t_o, innerLoop)
+                    l_threadFunc[idx].join()
+                    join += 1
+                    # self.dp.qprint('Join set on thread %d' % join)
+
+            return start
+
+        def loop_nonThreaded():
+            """
+            Loop over the problem domain space and process
+            the three main components (read, analysis, write)
+            in sequential order.
+            """
+            nonlocal index, total
+            nonlocal d_tree
+            nonlocal fn_inputReadCallback
+            nonlocal fn_analysisCallback
+            nonlocal fn_outputWriteCallback
+            d_read      = {}
+            d_analysis  = {}
+            d_output    = {}
+            for path, data in self.d_inputTree.items():
+                # Read
+                if fn_inputReadCallback:
+                    self.simpleProgress_show(index, total, '%s:%s' % 
+                        (threading.currentThread().getName(), 
+                        '%25s' % fn_inputReadCallback.__name__)
+                    )
+                    d_read = fn_inputReadCallback(
+                        ('%s/%s' % (self.str_inputDir, path), data), **kwargs
+                    )
+                    d_tree[path]    = d_read
+
+                # Analyze
+                if fn_analysisCallback:
+                    self.simpleProgress_show(index, total, '%s:%s' % 
+                        (threading.currentThread().getName(), 
+                        '%25s' % fn_analysisCallback.__name__)
+                    )
+                    d_analysis          = fn_analysisCallback(
+                        ('%s/%s' % (self.str_inputDir, path), d_tree[path]), **kwargs
+                    )
+                    if len(str_applyKey):
+                        d_tree[path]    = d_analysis[str_applyKey]
+                    else:
+                        d_tree[path]    = d_analysis
+
+                # Write
+                if fn_outputWriteCallback:
+                    self.simpleProgress_show(index, total, '%s:%s' % 
+                        (threading.currentThread().getName(), 
+                        '%25s' % fn_outputWriteCallback.__name__)
+                    )
+                    d_output        = fn_outputWriteCallback(
+                        ( '%s/%s' % (self.str_outputDir, path), d_analysis), **kwargs
+                    )
+                if not b_persistAnalysisResults:
+                    d_tree[path]    = d_output
+                index += 1
+
+        def loop_threaded():
+            """
+            Loop over the problem domain space and process
+            the three main components (read, analysis, write)
+            in thread-friendly order.
+
+            This means performing *all* the reads sequentially 
+            (non threaded), followed by the analysis threaded into
+            batches, followed by the writes all sequentially.
+            """
+            nonlocal index, total
+            nonlocal d_tree
+            nonlocal fn_inputReadCallback
+            nonlocal fn_analysisCallback
+            nonlocal fn_outputWriteCallback
+            d_read      = {}
+            d_analysis  = {}
+            d_output    = {}
+            
+            # Read
+            if fn_inputReadCallback:
+                index = 1
+                for path, data in self.d_inputTree.items():
+                    self.simpleProgress_show(index, total, '%s:%s' % 
+                        (threading.currentThread().getName(), 
+                        '%25s' % fn_inputReadCallback.__name__)
+                    )
+                    d_read = fn_inputReadCallback(
+                        ('%s/%s' % (self.str_inputDir, path), data), **kwargs
+                    )
+                    d_tree[path]    = d_read
+                    index += 1
+
+            # Analyze
+            if fn_analysisCallback:
+                index               = 1
+                l_threadAnalysis    = []
+                for path, data in self.d_inputTree.items():
+                    # Create threads for each directory in the 
+                    # input tree
+                    ta  = threading.Thread(
+                                name    = 't_a-%04d.%d' % (index, self.numThreads),
+                                target  = t_analyze,
+                                args    = (path, data, index),
+                                kwargs  = kwargs
+                    )
+                    l_threadAnalysis.append(ta)
+                    index += 1
+
+                # And now batch them in groups
+                index               = 1
+                threadFullLoops     = int(total / self.numThreads)
+                threadRem           = total % self.numThreads
+                alreadyRunCount = thread_batch(
+                                        l_threadAnalysis,
+                                        threadFullLoops, 
+                                        self.numThreads, 
+                                        0)
+                nextRunCount    =  thread_batch(
+                                        l_threadAnalysis,
+                                        1, 
+                                        threadRem, 
+                                        alreadyRunCount)
+
+            # Write
+            if fn_outputWriteCallback:
+                index   = 1
+                for path, data in self.d_inputTree.items():
+                    self.simpleProgress_show(index, total, '%s:%s' % 
+                        (threading.currentThread().getName(), 
+                        '%25s' % fn_outputWriteCallback.__name__)
+                    )
+                    d_output        = fn_outputWriteCallback(
+                        ( '%s/%s' % (self.str_outputDir, path), d_tree[path]), **kwargs
+                    )
+                    if not b_persistAnalysisResults:
+                        d_tree[path]    = d_output
+                    index += 1
+
         for k, v in kwargs.items():
-            if k == 'analysiscallback':         fn_analysiscallback         = v
-            if k == 'outputcallback':           fn_outputcallback           = v
+            if k == 'inputReadCallback':        fn_inputReadCallback        = v
+            if k == 'analysisCallback':         fn_analysisCallback         = v
+            if k == 'outputWriteCallback':      fn_outputWriteCallback      = v
             if k == 'applyResultsTo':           str_applyResultsTo          = v
             if k == 'applyKey':                 str_applyKey                = v
             if k == 'persistAnalysisResults':   b_persistAnalysisResults    = v
@@ -335,21 +533,17 @@ class pftree(object):
         if str_applyResultsTo == 'inputTree': 
             d_tree          = self.d_inputTree
 
-        index   = 1
-        total   = len(self.d_inputTree.keys())
-        for path, data in self.d_inputTree.items():
-            self.simpleProgress_show(index, total, fn_analysiscallback.__name__)
-            d_analysis          = fn_analysiscallback((path, data), **kwargs)
-            if len(str_applyKey):
-                d_tree[path]    = d_analysis[str_applyKey]
-            else:
-                d_tree[path]    = d_analysis
-            if fn_outputcallback:
-                self.simpleProgress_show(index, total, fn_outputcallback.__name__)
-                d_output        = fn_outputcallback((path, d_analysis), **kwargs)
-            if not b_persistAnalysisResults:
-                d_tree[path]    = d_output
-            index += 1
+        index               = 1
+        total               = len(self.d_inputTree.keys())
+        l_threadAnalysis    = []
+
+        # pudb.set_trace()
+
+        if not self.numThreads: 
+            loop_nonThreaded()
+        else:
+            loop_threaded()
+
         return {
             'status':   True
         }
