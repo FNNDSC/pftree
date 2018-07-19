@@ -55,7 +55,7 @@ def synopsis(ab_shortOnly = False):
 
     SYNOPSIS
 
-            %s                                       \\
+            %s                                          \\
                     -I|--inputDir <inputDir>                \\
                     [-r|--relativeDir]                      \\
                     [-i|--inputFile <inputFile>]            \\
@@ -68,7 +68,13 @@ def synopsis(ab_shortOnly = False):
 
     BRIEF EXAMPLE
 
-	    %s -I /var/www/html -O /tmp
+	    %s                                          \\
+                    -I /var/www/html                        \\
+                    -O /tmp                                 \\
+                    -r                                      \\
+                    --printElapsedTime                      \\
+                    --stats -v -1 --json
+
 
     ''' % (scriptName, scriptName, scriptName)
 
@@ -150,10 +156,10 @@ def synopsis(ab_shortOnly = False):
 
     EXAMPLES
 
-        $ pftree            -I /var/www/html                \
-                            -O /tmp                         \
-                            -r                              \
-                            --printElapsedTime              \
+        $ pftree            -I /var/www/html                \\
+                            -O /tmp                         \\
+                            -r                              \\
+                            --printElapsedTime              \\
                             --stats -v -1 --json
 
         Use also a '-v 0' for more output.
