@@ -209,9 +209,9 @@ class pftree(object):
             self.d_outputTree[str_path] = ""
             index += 1
         return {
-            'status':               True,
-            'd_constructCalback':   d_constructCallback,   
-            'seriesNumber':         index
+            'status':                   True,
+            'd_constructCalback':       d_constructCallback,   
+            'totalNumberOfAllSeries':   index
         }
 
     @staticmethod
@@ -245,9 +245,9 @@ class pftree(object):
         str_size    = pftree.sizeof_fmt(size)
 
         return {
-            'status':       True,
-            'size':         size,
-            'size_human':   str_size
+            'status':           True,
+            'diskUsage_raw':    size,
+            'diskUsage_human':  str_size
         }
 
 
@@ -345,25 +345,13 @@ class pftree(object):
         fn_outputWriteCallback      = None
         b_persistAnalysisResults    = False
         d_tree                      = self.d_outputTree
-
-        def t_analyze(path, data, index, **kwargs):
-            """
-            Core "kernel" that multithreadeds the analysis callback
-            """
-            nonlocal    total
-            nonlocal    d_tree
-            nonlocal    fn_analysisCallback
-            self.simpleProgress_show(index, total, '%s:%s' % 
-                (threading.currentThread().getName(), fn_analysisCallback.__name__)
-            )
-            d_analysis          = fn_analysisCallback(
-                ('%s/%s' % (self.str_inputDir, path), d_tree[path]), **kwargs
-            )
-            if len(str_applyKey):
-                d_tree[path]    = d_analysis[str_applyKey]
-            else:
-                d_tree[path]    = d_analysis
-            index += 1
+        str_processType             = ''
+        dret_inputSet               = {}
+        dret_analysis               = {}
+        dret_outputSet              = {}
+        filesRead                   = 0
+        filesAnalyzed               = 0
+        filesSaved                  = 0
 
         def thread_batch(l_threadFunc, outerLoop, innerLoop, offset):
             """
@@ -372,8 +360,7 @@ class pftree(object):
             """
             start   = 0
             join    = 0
-            # First, fire up the space of all the threads...
-            il = lambda f, i, o, l : f + i + o * l
+            il      = lambda f, i, o, l : f + i + o * l
             for t_o in range(0, outerLoop):
                 for t_i in range(0, innerLoop):
                     idx = il(offset, t_i, t_o, innerLoop)
@@ -381,7 +368,6 @@ class pftree(object):
                     start += 1
                     # self.dp.qprint('Started thread %d' % start)
 
-            # for t_o in range(0, outerLoop):
                 for t_i in range(0, innerLoop):
                     idx = il(offset, t_i, t_o, innerLoop)
                     l_threadFunc[idx].join()
@@ -389,6 +375,72 @@ class pftree(object):
                     # self.dp.qprint('Join set on thread %d' % join)
 
             return start
+
+        def inputSet_read(path, data):
+            """
+            The core canonical component that reads file sets
+            from specific "leaf" nodes in the <inputDir>.
+            """
+            nonlocal    filesRead
+            nonlocal    index
+            nonlocal    d_tree
+            nonlocal    fn_inputReadCallback
+
+            self.simpleProgress_show(index, total, '%s:%s' % 
+                ('%25s' %threading.currentThread().getName(), 
+                 '%25s' % fn_inputReadCallback.__name__)
+            )
+            d_read = fn_inputReadCallback(
+                ('%s/%s' % (self.str_inputDir, path), data), **kwargs
+            )
+            d_tree[path]    = d_read
+            filesRead       += d_read['filesRead']
+            return d_read
+
+        def analysis_do(path, data, index, **kwargs):
+            nonlocal    filesAnalyzed
+            nonlocal    d_tree
+            nonlocal    fn_analysisCallback
+
+            self.simpleProgress_show(index, total, '%s:%s' % 
+                ('%25s' % threading.currentThread().getName(), 
+                 '%25s' % fn_analysisCallback.__name__)
+            )
+            d_analysis          = fn_analysisCallback(
+                ('%s/%s' % (self.str_inputDir, path), d_tree[path]), **kwargs
+            )
+            if len(str_applyKey):
+                d_tree[path]    = d_analysis[str_applyKey]
+            else:
+                d_tree[path]    = d_analysis
+            if 'filesAnalyzed' in d_analysis.keys():                
+                filesAnalyzed       += d_analysis['filesAnalyzed']
+            elif 'l_file' in d_analysis.keys():
+                filesAnalyzed   = len(d_analysis['l_file'])
+            return d_analysis
+
+        def outputSet_write(path, data):
+            """
+            The core canonical component that writes file sets
+            to specific leaf nodes in the <outputDir>.
+            """
+            nonlocal    filesSaved
+            nonlocal    index
+            nonlocal    d_tree
+            nonlocal    fn_analysisCallback
+            nonlocal    b_persistAnalysisResults
+
+            self.simpleProgress_show(index, total, '%s:%s' % 
+                ('%25s' % threading.currentThread().getName(), 
+                 '%25s' % fn_outputWriteCallback.__name__)
+            )
+            d_output        = fn_outputWriteCallback(
+                ( '%s/%s' % (self.str_outputDir, path), data), **kwargs
+            )
+            if not b_persistAnalysisResults:
+                d_tree[path]    = d_output
+            filesSaved          += d_output['filesSaved']
+            return d_output
 
         def loop_nonThreaded():
             """
@@ -401,46 +453,15 @@ class pftree(object):
             nonlocal fn_inputReadCallback
             nonlocal fn_analysisCallback
             nonlocal fn_outputWriteCallback
-            d_read      = {}
-            d_analysis  = {}
-            d_output    = {}
+            nonlocal dret_inputSet
+            nonlocal dret_analysis
+            nonlocal dret_outputSet
+
             for path, data in self.d_inputTree.items():
-                # Read
-                if fn_inputReadCallback:
-                    self.simpleProgress_show(index, total, '%s:%s' % 
-                        (threading.currentThread().getName(), 
-                        '%25s' % fn_inputReadCallback.__name__)
-                    )
-                    d_read = fn_inputReadCallback(
-                        ('%s/%s' % (self.str_inputDir, path), data), **kwargs
-                    )
-                    d_tree[path]    = d_read
-
-                # Analyze
-                if fn_analysisCallback:
-                    self.simpleProgress_show(index, total, '%s:%s' % 
-                        (threading.currentThread().getName(), 
-                        '%25s' % fn_analysisCallback.__name__)
-                    )
-                    d_analysis          = fn_analysisCallback(
-                        ('%s/%s' % (self.str_inputDir, path), d_tree[path]), **kwargs
-                    )
-                    if len(str_applyKey):
-                        d_tree[path]    = d_analysis[str_applyKey]
-                    else:
-                        d_tree[path]    = d_analysis
-
-                # Write
-                if fn_outputWriteCallback:
-                    self.simpleProgress_show(index, total, '%s:%s' % 
-                        (threading.currentThread().getName(), 
-                        '%25s' % fn_outputWriteCallback.__name__)
-                    )
-                    d_output        = fn_outputWriteCallback(
-                        ( '%s/%s' % (self.str_outputDir, path), d_analysis), **kwargs
-                    )
-                if not b_persistAnalysisResults:
-                    d_tree[path]    = d_output
+                # Read (is sometimes skipped) / Analyze / Write
+                if fn_inputReadCallback:    dret_inputSet   = inputSet_read(path, data)
+                if fn_analysisCallback:     dret_analyze    = analysis_do(path, d_tree[path], index)
+                if fn_outputWriteCallback:  dret_outputSet  = outputSet_write(path, d_tree[path])
                 index += 1
 
         def loop_threaded():
@@ -458,41 +479,28 @@ class pftree(object):
             nonlocal fn_inputReadCallback
             nonlocal fn_analysisCallback
             nonlocal fn_outputWriteCallback
-            d_read      = {}
-            d_analysis  = {}
-            d_output    = {}
-            
-            # Read
-            if fn_inputReadCallback:
-                index = 1
-                for path, data in self.d_inputTree.items():
-                    self.simpleProgress_show(index, total, '%s:%s' % 
-                        (threading.currentThread().getName(), 
-                        '%25s' % fn_inputReadCallback.__name__)
-                    )
-                    d_read = fn_inputReadCallback(
-                        ('%s/%s' % (self.str_inputDir, path), data), **kwargs
-                    )
-                    d_tree[path]    = d_read
-                    index += 1
+            nonlocal dret_inputSet
+            nonlocal dret_analysis
+            nonlocal dret_outputSet
 
-            # Analyze
-            if fn_analysisCallback:
-                index               = 1
-                l_threadAnalysis    = []
-                for path, data in self.d_inputTree.items():
-                    # Create threads for each directory in the 
-                    # input tree
-                    ta  = threading.Thread(
-                                name    = 't_a-%04d.%d' % (index, self.numThreads),
-                                target  = t_analyze,
-                                args    = (path, data, index),
-                                kwargs  = kwargs
-                    )
-                    l_threadAnalysis.append(ta)
-                    index += 1
+            def thread_createOnFunction(path, data, str_namePrefix, fn_thread):
+                """
+                Simply create a thread function and return it.
+                """
+                nonlocal index
+                ta  = threading.Thread(
+                            name    = '%s-%04d.%d' % (str_namePrefix, index, self.numThreads),
+                            target  = fn_thread,
+                            args    = (path, data, index),
+                            kwargs  = kwargs
+                )
+                return ta
 
-                # And now batch them in groups
+            def threadsInBatches_run(l_threadAnalysis):
+                """
+                Run threads in batches of self.numThreads
+                and also handle any remaining threads.
+                """
                 index               = 1
                 threadFullLoops     = int(total / self.numThreads)
                 threadRem           = total % self.numThreads
@@ -507,19 +515,37 @@ class pftree(object):
                                         threadRem, 
                                         alreadyRunCount)
 
+            # Read
+            if fn_inputReadCallback:
+                index = 1
+                for path, data in self.d_inputTree.items():
+                    dret_inputSet   = inputSet_read(path, data)                    
+                    # filesRead       += dret_inputSet['filesRead']
+                    index += 1
+
+            # Analyze
+            if fn_analysisCallback:
+                index               = 1
+                l_threadAnalysis    = []
+                for path, data in self.d_inputTree.items():
+                    l_threadAnalysis.append(thread_createOnFunction(
+                                                    path, data,
+                                                    'analysisThread',
+                                                    # t_analyze
+                                                    analysis_do
+                                            )
+                    )
+                    index += 1
+
+                # And now batch them in groups
+                threadsInBatches_run(l_threadAnalysis)
+
             # Write
             if fn_outputWriteCallback:
                 index   = 1
                 for path, data in self.d_inputTree.items():
-                    self.simpleProgress_show(index, total, '%s:%s' % 
-                        (threading.currentThread().getName(), 
-                        '%25s' % fn_outputWriteCallback.__name__)
-                    )
-                    d_output        = fn_outputWriteCallback(
-                        ( '%s/%s' % (self.str_outputDir, path), d_tree[path]), **kwargs
-                    )
-                    if not b_persistAnalysisResults:
-                        d_tree[path]    = d_output
+                    dret_outputSet  = outputSet_write(path, d_tree[path])
+                    # filesSaved      += dret_outputSet['filesSaved']
                     index += 1
 
         for k, v in kwargs.items():
@@ -537,15 +563,22 @@ class pftree(object):
         total               = len(self.d_inputTree.keys())
         l_threadAnalysis    = []
 
-        # pudb.set_trace()
-
         if not self.numThreads: 
             loop_nonThreaded()
+            str_processType     = "Not threaded"
         else:
             loop_threaded()
+            str_processType     = "Threaded"
+
+        # pudb.set_trace()
 
         return {
-            'status':   True
+            'status':               True,
+            'processType':          str_processType,
+            'fileSetsProcessed':    index,
+            'filesRead':            filesRead,
+            'filesAnalyzed':        filesAnalyzed,
+            'filesSaved':           filesSaved
         }
 
     def tree_analysisOutput(self, *args, **kwargs):
