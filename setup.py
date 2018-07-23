@@ -12,7 +12,7 @@ def readme():
 
 setup(
       name             =   'pftree',
-      version          =   '1.4.8',
+      version          =   '1.4.10',
       description      =   '(Python) utility to create dict representations of file system trees.',
       long_description =   readme(),
       author           =   'FNNDSC',
