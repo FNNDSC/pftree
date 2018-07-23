@@ -88,7 +88,7 @@ class pftree(object):
         self.log                        = None
         self.tic_start                  = 0.0
         self.pp                         = pprint.PrettyPrinter(indent=4)
-        self.verbosityLevel             = -1
+        self.verbosityLevel             = 1
 
     def __init__(self, **kwargs):
 
@@ -109,7 +109,6 @@ class pftree(object):
         # Set logging
         self.dp                        = pfmisc.debug(    
                                             verbosity   = self.verbosityLevel,
-                                            level       = 0,
                                             within      = self.__name__
                                             )
         self.log                       = pfmisc.Message()
@@ -124,7 +123,9 @@ class pftree(object):
         f_percent   = index/total*100
         str_num     = "[%3d/%3d: %6.2f%%] " % (index, total, f_percent)
         str_bar     = "*" * int(f_percent)
-        self.dp.qprint("%s%s%s" % (str_pretext, str_num, str_bar), stackDepth = 2)
+        self.dp.qprint("%s%s%s" % ( str_pretext, str_num, str_bar), 
+                                    stackDepth  = 2,
+                                    level       = 2)
 
     def tree_probe(self, **kwargs):
         """
@@ -160,8 +161,8 @@ class pftree(object):
             if dirs:
                 l_dirsHere = [root + '/' + x for x in dirs]
                 l_dirs.append(l_dirsHere)
-                self.dp.qprint('Appending dirs to search space:\n')
-                self.dp.qprint("\n" + self.pp.pformat(l_dirsHere))
+                self.dp.qprint('Appending dirs to search space:\n', level = 3)
+                self.dp.qprint("\n" + self.pp.pformat(l_dirsHere),  level = 3)
             if files:
                 l_filesHere = [root + '/' + y for y in files]
                 if len(self.str_inputFile):
@@ -172,8 +173,8 @@ class pftree(object):
                         l_filesHere = []
                 if l_filesHere:
                     l_files.append(l_filesHere)
-                self.dp.qprint('Appending files to search space:\n')
-                self.dp.qprint("\n" + self.pp.pformat(l_filesHere))
+                self.dp.qprint('Appending files to search space:\n', level = 3)
+                self.dp.qprint("\n" + self.pp.pformat(l_filesHere),  level = 3)
         return {
             'status':   b_status,
             'l_dir':    l_dirs,
