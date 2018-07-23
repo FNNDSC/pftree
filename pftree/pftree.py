@@ -634,7 +634,8 @@ class pftree(object):
             'files':            totalElements,
             'totalSize':        totalSize,
             'totalSize_human':  str_totalSize_human,
-            'l_stats':          l_stats
+            'l_stats':          l_stats,
+            'runTime':          other.toc()
         }
 
     def run(self, *args, **kwargs):
