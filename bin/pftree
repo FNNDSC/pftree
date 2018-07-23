@@ -266,7 +266,6 @@ pf_tree             = pftree.pftree(
                         verbosity           = args.verbosity
                     )
 
-pudb.set_trace()
 # And now run it!
 d_pftree = pf_tree.run(timerStart = True)
 
