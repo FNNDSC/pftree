@@ -266,8 +266,14 @@ pf_tree             = pftree.pftree(
                         verbosity           = args.verbosity
                     )
 
+pudb.set_trace()
 # And now run it!
-other.tic()
-pf_tree.run()
-if args.printElapsedTime: pf_tree.dp.qprint("Elapsed time = %f seconds" % other.toc())
+d_pftree = pf_tree.run(timerStart = True)
+
+if args.printElapsedTime: 
+    pf_tree.dp.qprint(
+                        "Elapsed time = %f seconds" % 
+                        d_pftree['runTime']
+                    )
+
 sys.exit(0)

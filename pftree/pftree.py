@@ -124,7 +124,8 @@ class pftree(object):
         f_percent   = index/total*100
         str_num     = "[%3d/%3d: %6.2f%%] " % (index, total, f_percent)
         str_bar     = "*" * int(f_percent)
-        self.dp.qprint("%s%s%s" % (str_pretext, str_num, str_bar))
+        pudb.set_trace()
+        self.dp.qprint("%s%s%s" % (str_pretext, str_num, str_bar), stackDepth = 2)
 
     def tree_probe(self, **kwargs):
         """
@@ -614,19 +615,19 @@ class pftree(object):
         l_stats         = []
 
         for k, v in sorted(self.d_inputTreeCallback.items(), 
-                            key         = lambda kv: (kv[1]['size']),
+                            key         = lambda kv: (kv[1]['diskUsage_raw']),
                             reverse     = self.b_statsReverse):
             str_report  = "files: %5d; raw size: %12d; human size: %8s; %s" % (\
                     len(self.d_inputTree[k]), 
-                    self.d_inputTreeCallback[k]['size'], 
-                    self.d_inputTreeCallback[k]['size_human'], 
+                    self.d_inputTreeCallback[k]['diskUsage_raw'], 
+                    self.d_inputTreeCallback[k]['diskUsage_human'], 
                     k
             )
             self.dp.qprint(str_report)
             l_stats.append(str_report)
             totalElements   += len(v)
             totalKeys       += 1
-            totalSize       += self.d_inputTreeCallback[k]['size']
+            totalSize       += self.d_inputTreeCallback[k]['diskUsage_raw']
         str_totalSize_human = self.sizeof_fmt(totalSize)
         return {
             'status':           True,
@@ -641,11 +642,18 @@ class pftree(object):
         """
         Probe the input tree and print.
         """
-        b_status    = True
-        d_probe     = {}
-        d_tree      = {}
-        d_stats     = {}
-        str_error   = ''
+        b_status        = True
+        d_probe         = {}
+        d_tree          = {}
+        d_stats         = {}
+        str_error       = ''
+        b_timerStart    = False
+
+        for k, v in kwargs.items():
+            if k == 'timerStart':   b_timerStart    = bool(v)
+
+        if b_timerStart:
+            other.tic()
 
         if not os.path.exists(self.str_inputDir):
             b_status    = False
@@ -685,11 +693,14 @@ class pftree(object):
             if self.b_relativeDir:
                 os.chdir(str_origDir)
 
-        return {
+        d_ret = {
             'status':       b_status,
             'd_probe':      d_probe,
             'd_tree':       d_tree,
             'd_stats':      d_stats,
-            'str_error':    str_error
+            'str_error':    str_error,
+            'runTime':      other.toc()
         }
+
+        return d_ret
         
