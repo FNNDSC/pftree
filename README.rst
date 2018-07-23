@@ -88,8 +88,10 @@ Command line arguments
         -v|--verbosity <level>
         Set the app verbosity level. 
 
-             -1: No internal output.
-              0: All internal output.
+            0: No internal output;
+            1: Most important internal output, i.e. sorted stat results;
+            2: As with level '1' but with simpleProgress bar;
+            3: As with level '2' but with list of input dirs/files;
 
 Examples
 ~~~~~~~~
@@ -102,6 +104,6 @@ Run on a target tree and output some detail and stats
                         -O /tmp                         \
                         -r                              \
                         --printElapsedTime              \
-                        --stats -v -1 --json
+                        --stats -v 0 --json
 
-Use also a '-v 0' for more output.
+which will output only at script conclusion and will log a JSON formatted string.
