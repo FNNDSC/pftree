@@ -124,7 +124,6 @@ class pftree(object):
         f_percent   = index/total*100
         str_num     = "[%3d/%3d: %6.2f%%] " % (index, total, f_percent)
         str_bar     = "*" * int(f_percent)
-        pudb.set_trace()
         self.dp.qprint("%s%s%s" % (str_pretext, str_num, str_bar), stackDepth = 2)
 
     def tree_probe(self, **kwargs):
@@ -201,7 +200,7 @@ class pftree(object):
         for l_series in l_files:
             str_path    = os.path.dirname(l_series[0])
             l_series    = [ os.path.basename(i) for i in l_series]
-            self.simpleProgress_show(index, total, 'tree_construct')
+            self.simpleProgress_show(index, total)
             self.d_inputTree[str_path]  = l_series
             if fn_constructCallback:
                 kwargs['path']          = str_path
