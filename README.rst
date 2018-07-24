@@ -18,7 +18,7 @@ As a convenience, however, the '--stats' or '--statsReverse' do provide a useful
 
 Given an <inputDir>, pftree will perform a recursive walk down the directory tree. For each directory that contains files, `pftree` will create a dictionary key of the directory path, and will store a list of filenames for the key value.
 
-The core the of the class is a <tree_analysisApply> method, that accepts various kwargs. When called, this method will loop over the dictionary, and for each key (i.e. 'path') will execute a callback method. This callback is passed the dictionary value at that key (i.e. usually just the list of files) as well as all the **kwargs passed to <tree_analysisApply>.
+The core the of the class is a <tree_analysisApply> method, that accepts various kwargs. When called, this method will loop over the dictionary, and for each key (i.e. 'path') will execute a callback method. This callback is passed the dictionary value at that key (i.e. usually just the list of files) as well as all the kwargs passed to <tree_analysisApply>.
 
 Dependencies
 ------------
