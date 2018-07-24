@@ -690,8 +690,10 @@ class pftree(object):
             b_status    = b_status and d_tree['status']
             if self.b_stats or self.b_statsReverse:
                 d_stats     = self.stats_compute()
-                self.dp.qprint('Total size (raw):   %d' % d_stats['totalSize'], level = 1)
-                self.dp.qprint('Total size (human): %s' % d_stats['totalSize_human'], level = 1)
+                self.dp.qprint('Total size (raw):   %d' % d_stats['totalSize'],         level = 1)
+                self.dp.qprint('Total size (human): %s' % d_stats['totalSize_human'],   level = 1)
+                self.dp.qprint('Total files:        %s' % d_stats['files'],             level = 1)
+                self.dp.qprint('Total dirs:         %s' % d_stats['dirs'],              level = 1)
                 b_status    = b_status and d_stats['status']
 
             if self.b_json:
