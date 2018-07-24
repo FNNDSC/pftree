@@ -12,6 +12,14 @@ Overview
 
 pftree recursively walks down an input directory tree and creates a dictionary representation of the path structure. Each tree "key" has a list of files in that corresponding directory in the filesystem. 
 
+pftree in and of itself is does not really do any work. It is a class that provides the internals for representing file system hierarchies in dictionary form.
+
+As a convenience, however, the '--stats' or '--statsReverse' do provide a useful analog for sorted directory usage down a file system tree.
+
+Given an <inputDir>, pftree will perform a recursive walk down the directory tree. For each directory that contains files, `pftree` will create a dictionary key of the directory path, and will store a list of filenames for the key value.
+
+The core the of the class is a <tree_analysisApply> method, that accepts various kwargs. When called, this method will loop over the dictionary, and for each key (i.e. 'path') will execute a callback method. This callback is passed the dictionary value at that key (i.e. usually just the list of files) as well as all the **kwargs passed to <tree_analysisApply>.
+
 Dependencies
 ------------
 
@@ -101,8 +109,6 @@ Run on a target tree and output some detail and stats
 .. code:: bash
 
         pftree          -I /var/www/html                \
-                        -O /tmp                         \
-                        -r                              \
                         --printElapsedTime              \
                         --stats -v 0 --json
 
