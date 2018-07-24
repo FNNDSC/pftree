@@ -613,6 +613,7 @@ class pftree(object):
         totalKeys       = 0
         totalSize       = 0
         l_stats         = []
+        d_report        = {}
 
         for k, v in sorted(self.d_inputTreeCallback.items(), 
                             key         = lambda kv: (kv[1]['diskUsage_raw']),
@@ -621,10 +622,15 @@ class pftree(object):
                     len(self.d_inputTree[k]), 
                     self.d_inputTreeCallback[k]['diskUsage_raw'], 
                     self.d_inputTreeCallback[k]['diskUsage_human'], 
-                    k
-            )
-            self.dp.qprint(str_report)
-            l_stats.append(str_report)
+                    k)
+            d_report = {
+                'files':            len(self.d_inputTree[k]),
+                'diskUsage_raw':    self.d_inputTreeCallback[k]['diskUsage_raw'],
+                'diskUsage_human':  self.d_inputTreeCallback[k]['diskUsage_human'],
+                'path':             k
+            }
+            self.dp.qprint(str_report, level = 1)
+            l_stats.append(d_report)
             totalElements   += len(v)
             totalKeys       += 1
             totalSize       += self.d_inputTreeCallback[k]['diskUsage_raw']
@@ -684,8 +690,8 @@ class pftree(object):
             b_status    = b_status and d_tree['status']
             if self.b_stats or self.b_statsReverse:
                 d_stats     = self.stats_compute()
-                self.dp.qprint('Total size (raw):   %d' % d_stats['totalSize'])
-                self.dp.qprint('Total size (human): %s' % d_stats['totalSize_human'])
+                self.dp.qprint('Total size (raw):   %d' % d_stats['totalSize'], level = 1)
+                self.dp.qprint('Total size (human): %s' % d_stats['totalSize_human'], level = 1)
                 b_status    = b_status and d_stats['status']
 
             if self.b_json:
