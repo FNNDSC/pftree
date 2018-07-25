@@ -12,12 +12,12 @@ def readme():
 
 setup(
       name             =   'pftree',
-      version          =   '1.4.24',
+      version          =   '1.4.26',
       description      =   '(Python) utility to create dict representations of file system trees.',
       long_description =   readme(),
       author           =   'FNNDSC',
       author_email     =   'dev@babymri.org',
-      url              =   'https://github.com/FNNDSC/med2image',
+      url              =   'https://github.com/FNNDSC/pftree',
       packages         =   ['pftree'],
       install_requires =   ['pfmisc', 'pudb'],
       #test_suite       =   'nose.collector',
