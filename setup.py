@@ -12,8 +12,8 @@ def readme():
 
 setup(
       name             =   'pftree',
-      version          =   '1.4.26',
-      description      =   '(Python) utility to create dict representations of file system trees.',
+      version          =   '1.4.28',
+      description      =   'Utility to create dict representations of file system trees.',
       long_description =   readme(),
       author           =   'FNNDSC',
       author_email     =   'dev@babymri.org',
