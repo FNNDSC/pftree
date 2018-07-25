@@ -1,6 +1,18 @@
 pftree
 ======
 
+.. image:: https://badge.fury.io/py/pftree.svg
+    :target: https://badge.fury.io/py/pftree
+
+.. image:: https://travis-ci.org/FNNDSC/pftree.svg?branch=master
+    :target: https://travis-ci.org/FNNDSC/pftree
+
+.. image:: https://img.shields.io/badge/python-3.5%2B-blue.svg
+    :target: https://badge.fury.io/py/pftree
+
+.. contents:: Table of Contents
+
+
 Quick Overview
 --------------
 
