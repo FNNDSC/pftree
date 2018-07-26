@@ -4,6 +4,7 @@ import      getpass
 import      argparse
 import      json
 import      pprint
+import      time 
 
 # Project specific imports
 import      pfmisc
@@ -76,13 +77,18 @@ class pftree(object):
         self.d_inputTree                = {}
         self.d_inputTreeCallback        = {}
         self.d_outputTree               = {}
+        self.str_outputLeafDir          = ''
 
         # Flags
         self.b_persistAnalysisResults   = False
         self.b_relativeDir              = False
         self.b_stats                    = False
         self.b_statsReverse             = False
+        self.b_jsonStats                = False
         self.b_json                     = False
+        self.b_test                     = False
+        self.str_sleepLength            = ''
+        self.f_sleepLength              = 0.0
 
         self.dp                         = None
         self.log                        = None
@@ -96,15 +102,25 @@ class pftree(object):
         self.declare_selfvars()
 
         for key, value in kwargs.items():
-            if key == "inputDir":       self.str_inputDir   = value
-            if key == "inputFile":      self.str_inputFile  = value
-            if key == "outputDir":      self.str_outputDir  = value
-            if key == 'verbosity':      self.verbosityLevel = int(value)
-            if key == 'threads':        self.numThreads     = int(value)
-            if key == 'relativeDir':    self.b_relativeDir  = bool(value)
-            if key == 'stats':          self.b_stats        = bool(value)
-            if key == 'statsReverse':   self.b_statsReverse = bool(value)
-            if key == 'json':           self.b_json         = bool(value)
+            if key == 'inputDir':       self.str_inputDir       = value
+            if key == 'inputFile':      self.str_inputFile      = value
+            if key == 'outputDir':      self.str_outputDir      = value
+            if key == 'verbosity':      self.verbosityLevel     = int(value)
+            if key == 'threads':        self.numThreads         = int(value)
+            if key == 'relativeDir':    self.b_relativeDir      = bool(value)
+            if key == 'stats':          self.b_stats            = bool(value)
+            if key == 'statsReverse':   self.b_statsReverse     = bool(value)
+            if key == 'jsonStats':      self.b_jsonStats        = bool(value)
+            if key == 'json':           self.b_json             = bool(value)
+            if key == 'test':           self.str_sleepLength    = value
+            if key == 'outputLeafDir':  self.str_outputLeafDir  = value
+
+        if len(self.str_sleepLength):
+            try:
+                self.f_sleepLength      = float(self.str_sleepLength)
+                self.b_test             = True
+            except:
+                self.b_test             = False
 
         # Set logging
         self.dp                        = pfmisc.debug(    
@@ -645,6 +661,114 @@ class pftree(object):
             'runTime':          other.toc()
         }
 
+    def inputReadCallback(self, *args, **kwargs):
+        """
+        Test for inputReadCallback
+
+        This method does not actually "read" the input files,
+        but simply returns the passed file list back to 
+        caller
+        """
+        b_status    = True
+        filesRead   = 0
+
+        for k, v in kwargs.items():
+            if k == 'l_file':   l_file      = v
+            if k == 'path':     str_path    = v
+
+        if len(args):
+            at_data         = args[0]
+            str_path        = at_data[0]
+            l_file          = at_data[1]
+
+        for f in l_file:
+            self.dp.qprint("reading: %s/%s" % (str_path, f), level = 5)
+            filesRead += 1
+
+        if not len(l_file): b_status = False
+
+        return {
+            'status':           b_status,
+            'l_file':           l_file,
+            'str_path':         str_path,
+            'filesRead':        filesRead
+        }
+        
+    def inputAnalyzeCallback(self, *args, **kwargs):
+        """
+        Test method for inputAnalzeCallback
+
+        This method loops over the passed number of files, 
+        and optionally "delays" in each loop to simulate
+        some analysis. The delay length is specified by
+        the '--test <delay>' flag.
+
+        """
+        b_status            = False
+        filesRead           = 0
+        filesAnalyzed       = 0
+
+        for k, v in kwargs.items():
+            if k == 'filesRead':    d_DCMRead   = v
+            if k == 'path':         str_path    = v
+
+        if len(args):
+            at_data         = args[0]
+            str_path        = at_data[0]
+            d_read          = at_data[1]
+
+        for f in d_read['l_file']:
+            b_status        = True
+            self.dp.qprint("analyzing: %s" % f, level = 5)
+            self.dp.qprint("sleeping for: %f" % self.f_sleepLength, level = 5)
+            time.sleep(self.f_sleepLength)
+            filesAnalyzed   += 1
+
+        return {
+            'status':           b_status,
+            'filesAnalyzed':    filesAnalyzed
+        }
+
+    def outputSaveCallback(self, at_data, **kwargs):
+        """
+        Test method for outputSaveCallback
+
+        Simply writes a file in the output tree corresponding
+        to the number of files in the input tree.
+        """
+        path                = at_data[0]
+        d_outputInfo        = at_data[1]
+        other.mkdir(self.str_outputDir)
+        filesSaved          = 0
+        other.mkdir(path)
+        str_outfile         = '%s/output.txt' % path
+
+        with open(str_outfile, 'w') as f:
+            self.dp.qprint("saving: %s" % (str_outfile), level = 5)
+            f.write('%d\n' % d_outputInfo['filesAnalyzed'])
+        filesSaved += 1
+        
+        return {
+            'status':       True,
+            'outputFile':   str_outfile,
+            'filesSaved':   filesSaved
+        }
+
+
+    def test_run(self, *args, **kwargs):
+        """
+        Perform a test run of the read/analyze/write loop
+        (thread aware).
+        """
+
+        d_test = self.tree_process(
+                inputReadCallback       = self.inputReadCallback,
+                analysisCallback        = self.inputAnalyzeCallback,
+                outputWriteCallback     = self.outputSaveCallback,
+                persistAnalysisResults  = False
+        )
+        return d_test
+
     def run(self, *args, **kwargs):
         """
         Probe the input tree and print.
@@ -655,6 +779,7 @@ class pftree(object):
         d_stats         = {}
         str_error       = ''
         b_timerStart    = False
+        d_test          = {}
 
         for k, v in kwargs.items():
             if k == 'timerStart':   b_timerStart    = bool(v)
@@ -688,15 +813,20 @@ class pftree(object):
                 constructCallback   = self.dirsize_get
             )
             b_status    = b_status and d_tree['status']
-            if self.b_stats or self.b_statsReverse:
-                d_stats     = self.stats_compute()
-                self.dp.qprint('Total size (raw):   %d' % d_stats['totalSize'],         level = 1)
-                self.dp.qprint('Total size (human): %s' % d_stats['totalSize_human'],   level = 1)
-                self.dp.qprint('Total files:        %s' % d_stats['files'],             level = 1)
-                self.dp.qprint('Total dirs:         %s' % d_stats['dirs'],              level = 1)
-                b_status    = b_status and d_stats['status']
 
-            if self.b_json:
+            if self.b_test:
+                d_test      = self.test_run(*args, **kwargs)
+                b_status    = b_status and d_test['status']
+            else:
+                if self.b_stats or self.b_statsReverse:
+                    d_stats     = self.stats_compute()
+                    self.dp.qprint('Total size (raw):   %d' % d_stats['totalSize'],         level = 1)
+                    self.dp.qprint('Total size (human): %s' % d_stats['totalSize_human'],   level = 1)
+                    self.dp.qprint('Total files:        %s' % d_stats['files'],             level = 1)
+                    self.dp.qprint('Total dirs:         %s' % d_stats['dirs'],              level = 1)
+                    b_status    = b_status and d_stats['status']
+
+            if self.b_jsonStats:
                 print(json.dumps(d_stats, indent = 4, sort_keys = True))
 
             if self.b_relativeDir:
@@ -707,9 +837,13 @@ class pftree(object):
             'd_probe':      d_probe,
             'd_tree':       d_tree,
             'd_stats':      d_stats,
+            'd_test':       d_test,
             'str_error':    str_error,
             'runTime':      other.toc()
         }
+
+        if self.b_json:
+            print(json.dumps(d_ret, indent = 4, sort_keys = True))
 
         return d_ret
         
