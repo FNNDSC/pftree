@@ -213,6 +213,10 @@ parser.add_argument("-t", "--threads",
                     help    = "number of threads for innermost loop processing",
                     dest    = 'threads',
                     default = "0")
+parser.add_argument("--outputLeafDir",
+                    help    = "formatting spec for output leaf directory",
+                    dest    = 'outputLeafDir',
+                    default = "")
 parser.add_argument("-r", "--relativeDir",
                     help    = "use relative directories",
                     dest    = 'relativeDir',
@@ -228,11 +232,20 @@ parser.add_argument("--statsReverse",
                     dest    = 'statsReverse',
                     action  = 'store_true',
                     default = False)
-parser.add_argument("--json",
+parser.add_argument("--jsonStats",
                     help    = "JSON dump stats",
+                    dest    = 'jsonStats',
+                    action  = 'store_true',
+                    default = False)
+parser.add_argument("--json",
+                    help    = "JSON final return",
                     dest    = 'json',
                     action  = 'store_true',
                     default = False)
+parser.add_argument("--test",
+                    help    = "perform a test run of the read/analyze/write loop -- arg indicates sleep length in analyze",
+                    dest    = 'test',
+                    default = '')
 parser.add_argument("--printElapsedTime",
                     help    = "print program run time",
                     dest    = 'printElapsedTime',
@@ -271,6 +284,9 @@ pf_tree             = pftree.pftree(
                         statsReverse        = args.statsReverse,
                         threads             = args.threads,
                         json                = args.json,
+                        jsonStats           = args.jsonStats,
+                        test                = args.test,
+                        outputLeafDirSpec   = args.outputLeafDir,
                         verbosity           = args.verbosity
                     )
 
