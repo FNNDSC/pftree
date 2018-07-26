@@ -451,6 +451,14 @@ class pftree(object):
                 ('%25s' % threading.currentThread().getName(), 
                  '%25s' % fn_outputWriteCallback.__name__)
             )
+
+            if len(self.str_outputLeafDir):
+                (dirname, basename) = os.path.split(path)
+                str_format  = '\'%s\'' % self.str_outputLeafDir
+                new_basename = str_format + ' % basename'
+                str_eval    = eval(new_basename)
+                path        = '%s/%s' % (dirname, str_eval)
+
             d_output        = fn_outputWriteCallback(
                 ( '%s/%s' % (self.str_outputDir, path), data), **kwargs
             )
@@ -761,6 +769,7 @@ class pftree(object):
         (thread aware).
         """
 
+        self.b_relativeDir              = True
         d_test = self.tree_process(
                 inputReadCallback       = self.inputReadCallback,
                 analysisCallback        = self.inputAnalyzeCallback,
