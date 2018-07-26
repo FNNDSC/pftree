@@ -286,7 +286,7 @@ pf_tree             = pftree.pftree(
                         json                = args.json,
                         jsonStats           = args.jsonStats,
                         test                = args.test,
-                        outputLeafDirSpec   = args.outputLeafDir,
+                        outputLeafDir       = args.outputLeafDir,
                         verbosity           = args.verbosity
                     )
 
