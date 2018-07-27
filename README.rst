@@ -74,6 +74,20 @@ Command line arguments
         [-O|--outputDir <outputDir>]
         The directory to contain all output files.
 
+        [--outputLeafDir <outputLeafDirFormat>]
+        If specified, will apply the <outputLeafDirFormat> to the output
+        directories containing data. This is useful to blanket describe
+        final output directories with some descriptive text, such as 
+        'anon' or 'preview'. 
+
+        This is a formatting spec, so 
+
+            --outputLeafDir 'preview-%s'
+
+        where %s is the original leaf directory node, will prefix each
+        final directory containing output with the text 'preview-' which
+        can be useful in describing some features of the output set.
+
         [--stats | --statsReverse]
         If specified, return some stats to caller -- summary list ordered
         by directory size (--statsReverse does a reverse sort).
