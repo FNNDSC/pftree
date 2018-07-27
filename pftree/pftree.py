@@ -689,9 +689,11 @@ class pftree(object):
             str_path        = at_data[0]
             l_file          = at_data[1]
 
-        for f in l_file:
-            self.dp.qprint("reading: %s/%s" % (str_path, f), level = 5)
-            filesRead += 1
+        self.dp.qprint("reading (in path %s):\n%s" % 
+                            (str_path, 
+                            self.pp.pformat(l_file)), 
+                            level = 5)
+        filesRead   = len(l_file)
 
         if not len(l_file): b_status = False
 
@@ -725,12 +727,14 @@ class pftree(object):
             str_path        = at_data[0]
             d_read          = at_data[1]
 
-        for f in d_read['l_file']:
-            b_status        = True
-            self.dp.qprint("analyzing: %s" % f, level = 5)
+        b_status        = True
+        self.dp.qprint("analyzing:\n%s" % 
+                                self.pp.pformat(d_read['l_file']), 
+                                level = 5)
+        if int(self.f_sleepLength):
             self.dp.qprint("sleeping for: %f" % self.f_sleepLength, level = 5)
             time.sleep(self.f_sleepLength)
-            filesAnalyzed   += 1
+        filesAnalyzed   = len(d_read['l_file'])
 
         return {
             'status':           b_status,
