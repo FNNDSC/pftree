@@ -115,6 +115,17 @@ Command line arguments
         [--json]
         If specified, do a JSON dump of the stats.
 
+        [--test <analysisDelayLength>]
+        If specified, perform a test/dummy run through the 
+
+            - read
+            - analyze
+            - write
+
+        callbacks. The <analysisDelayLength> denotes time (in seconds)
+        to delay in the analysis loop -- useful for testing threading
+        performance.
+
         [-x|--man]
         Show full help.
 
