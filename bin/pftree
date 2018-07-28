@@ -19,7 +19,7 @@ import  pfmisc
 from    pfmisc._colors      import Colors
 from    pfmisc              import other
 
-str_version = "1.6.0"
+str_version = "1.6.2"
 str_desc = Colors.CYAN + """
 
 
@@ -60,8 +60,10 @@ def synopsis(ab_shortOnly = False):
                     [-r|--relativeDir]                      \\
                     [-i|--inputFile <inputFile>]            \\
                     [-O|--outputDir <outputDir>]            \\
+                    [--outputLeafDir <outputLeafDirFormat>] \\
                     [--stats | --statsReverse]              \\
                     [-t|--threads <threads>]                \\
+                    [--jsonStats]                           \\
                     [--json]                                \\
                     [-x|--man]                              \\
                     [-y|--synopsis]
@@ -104,9 +106,8 @@ def synopsis(ab_shortOnly = False):
     ARGS
 
         -I|--inputDir <inputDir>
-        Input DICOM directory to examine. By default, the first file in this
-        directory is examined for its tag information. There is an implicit
-        assumption that each <inputDir> contains a single DICOM series.
+        Input directory to examine. The downstream nested structure of this
+        directory is examined and recreated in the <outputDir>.
 
         [-r|--relativeDir]
         A flag argument. If passed (i.e. True), then the dictionary key values
@@ -116,11 +117,13 @@ def synopsis(ab_shortOnly = False):
 
         [-i|--inputFile <inputFile>]
         An optional <inputFile> specified relative to the <inputDir>. If 
-        specified, then do not perform a directory walk, but convert only 
-        this file.
+        specified, then do not perform a directory walk, but target this
+        specific file.
 
         [-O|--outputDir <outputDir>]
-        The directory to contain all output files.
+        The directory to contain a tree structure identical to the input 
+        tree structure, and which contains all output files from the 
+        per-input-dir processing.
 
         [--outputLeafDir <outputLeafDirFormat>]
         If specified, will apply the <outputLeafDirFormat> to the output
@@ -144,21 +147,34 @@ def synopsis(ab_shortOnly = False):
         If specified, break the innermost analysis loop into <numThreads>
         threads. Please note the following caveats:
 
-            * Only thread if you have a high CPU analysis loop. Since
-              most of the operations of this module will entail reading
-              and writing DICOM files, and since these operations are 
-              the bulk of the execution time, adding threading will not
+            * Only thread if you have a high CPU analysis loop. Note that
+              the input file read and output file write loops are not
+              threaded -- only the analysis loop is threaded. Thus, if the
+              bulk of execution time is in file IO, threading will not 
               really help.
 
             * Threading will change the nature of the innermost looping
               across the problem domain, with the result that *all* of the
-              problem data will be read into memory! That means all of 
-              DICOMs across all of the subdirs! In non-threading mode,
-              only DICOMs from a single directory at a time are read
-              and then discarded.
+              problem data will be read into memory! That means potentially
+              all the target input file data across the entire input directory
+              tree.
+              
+        [--jsonStats]
+        If specified, do a JSON dump of the stats.
 
         [--json]
-        If specified, do a JSON dump of the stats.
+        If specified, do a JSON dump of the entire return payload.
+
+        [--test <analysisDelayLength>]
+        If specified, perform a test/dummy run through the 
+
+            - read
+            - analyze
+            - write
+
+        callbacks. The <analysisDelayLength> denotes time (in seconds)
+        to delay in the analysis loop -- useful for testing threading
+        performance.
 
         [-x|--man]
         Show full help.
@@ -178,7 +194,7 @@ def synopsis(ab_shortOnly = False):
 
     Run on a target tree and output some detail and stats
 
-        $ pftree            -I /var/www/html                \\
+        pftree            -I /var/www/html                  \\
                             --printElapsedTime              \\
                             --stats -v -0 --json
 
