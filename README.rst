@@ -113,7 +113,7 @@ Command line arguments
         If specified, do a JSON dump of the stats.
 
         [--json]
-        If specified, do a JSON dump of the stats.
+        If specified, do a JSON dump of the entire return payload.
 
         [--test <analysisDelayLength>]
         If specified, perform a test/dummy run through the 
