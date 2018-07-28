@@ -411,7 +411,8 @@ class pftree(object):
                 ('%s/%s' % (self.str_inputDir, path), data), **kwargs
             )
             d_tree[path]    = d_read
-            filesRead       += d_read['filesRead']
+            if 'filesRead' in d_read.keys():
+                filesRead   += d_read['filesRead']
             return d_read
 
         def analysis_do(path, data, index, **kwargs):
@@ -433,7 +434,7 @@ class pftree(object):
             if 'filesAnalyzed' in d_analysis.keys():                
                 filesAnalyzed       += d_analysis['filesAnalyzed']
             elif 'l_file' in d_analysis.keys():
-                filesAnalyzed   = len(d_analysis['l_file'])
+                filesAnalyzed   += len(d_analysis['l_file'])
             return d_analysis
 
         def outputSet_write(path, data):
@@ -527,6 +528,8 @@ class pftree(object):
                 and also handle any remaining threads.
                 """
                 index               = 1
+                if self.numThreads > total:
+                    self.numThreads = total
                 threadFullLoops     = int(total / self.numThreads)
                 threadRem           = total % self.numThreads
                 alreadyRunCount = thread_batch(
