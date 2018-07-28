@@ -34,7 +34,7 @@ str_desc = Colors.CYAN + """
 
   
 
-                        Path-File tree structure
+                            Path-File tree structure
 
         Recursively walk down an input directory tree and create a dictionary
         representation of the path structure. Each tree "key" has a list
