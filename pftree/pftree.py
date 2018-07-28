@@ -741,7 +741,8 @@ class pftree(object):
 
         return {
             'status':           b_status,
-            'filesAnalyzed':    filesAnalyzed
+            'filesAnalyzed':    filesAnalyzed,
+            'l_file':           d_read['l_file']
         }
 
     def outputSaveCallback(self, at_data, **kwargs):
@@ -756,11 +757,11 @@ class pftree(object):
         other.mkdir(self.str_outputDir)
         filesSaved          = 0
         other.mkdir(path)
-        str_outfile         = '%s/output.txt' % path
+        str_outfile         = '%s/file-ls.txt' % path
 
         with open(str_outfile, 'w') as f:
             self.dp.qprint("saving: %s" % (str_outfile), level = 5)
-            f.write('%d\n' % d_outputInfo['filesAnalyzed'])
+            f.write('%s' % self.pp.pformat(d_outputInfo['l_file']))
         filesSaved += 1
         
         return {
