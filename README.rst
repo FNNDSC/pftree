@@ -32,15 +32,18 @@ Given an ``<inputDir>``, ``pftree`` will perform a recursive walk down the direc
 
 The core the of the class is a ``tree_analysisApply()`` method, that accepts various kwargs. When called, this method will loop over the dictionary, and for each key (i.e. 'path') will execute a callback method. This callback is passed the dictionary value at that key (i.e. usually just the list of files) as well as all the kwargs passed to ``tree_analysisApply()``.
 
-Dependencies
+Installation
 ------------
+
+Dependencies
+~~~~~~~~~~~~
 
 The following dependencies are installed on your host system/python3 virtual env (they will also be automatically installed if pulled from pypi):
 
 -  ``pfmisc`` (various misc modules and classes for the pf* family of objects)
 
-Installation
-~~~~~~~~~~~~
+Using ``PyPI``
+~~~~~~~~~~~~~~
 
 The best method of installing this script and all of its dependencies is
 by fetching it from PyPI
@@ -151,10 +154,10 @@ Command line arguments
             3: As with level '2' but with list of input dirs/files;
 
 Examples
-~~~~~~~~
+--------
 
 stats
------
+~~~~~
 
 Run on a target tree and output some detail and stats
 
@@ -167,14 +170,14 @@ Run on a target tree and output some detail and stats
 which will output only at script conclusion and will log a JSON formatted string.
 
 test
-----
+~~~~
 
 Run a test down a target tree:
 
-        pftree          -I /etc                         \\
-                        -O /tmp/test                    \\
-                        -v 1 -r                         \\
-                        --outputLeafDir 'preview-%%s'    \\
+        pftree          -I /etc                         \
+                        -O /tmp/test                    \
+                        -v 1 -r                         \
+                        --outputLeafDir 'preview-%s'    \
                         --test 0
 
 which will "copy" the input tree to the output, and save a file-ls.txt in each directory where necessary. Note the ``-r`` for 'relative' directory specification and the ``--outputLeafDir`` spec.
