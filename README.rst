@@ -115,7 +115,7 @@ Command line arguments
         [--json]
         If specified, do a JSON dump of the entire return payload.
 
-        [--test <analysisDelayLength>]
+        [--test <analysisDelayLength[:<type>]>]
         If specified, perform a test/dummy run through the 
 
             - read
@@ -125,6 +125,16 @@ Command line arguments
         callbacks. The <analysisDelayLength> denotes time (in seconds)
         to delay in the analysis loop -- useful for testing threading
         performance.
+
+        An optional [:<type>] can be specified.
+
+            :0  - write the 'l_file' to each outputdir, i.e. a simple 'ls'
+                  analog
+            :1  - write only the number of files analyzed to each outputdir,
+                  i.e. a summary.
+
+        For large trees, ':0' can take a significantly longer time than 
+        ':1'.
 
         [-x|--man]
         Show full help.
