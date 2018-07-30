@@ -89,6 +89,7 @@ class pftree(object):
         self.b_test                     = False
         self.str_sleepLength            = ''
         self.f_sleepLength              = 0.0
+        self.testType                   = 0
 
         self.dp                         = None
         self.log                        = None
@@ -116,6 +117,10 @@ class pftree(object):
             if key == 'outputLeafDir':  self.str_outputLeafDir  = value
 
         if len(self.str_sleepLength):
+            l_test  = self.str_sleepLength.split(':')
+            self.str_sleepLength    = l_test[0]
+            if len(l_test) == 2:
+                self.testType   = int(l_test[1])
             try:
                 self.f_sleepLength      = float(self.str_sleepLength)
                 self.b_test             = True
@@ -757,11 +762,17 @@ class pftree(object):
         other.mkdir(self.str_outputDir)
         filesSaved          = 0
         other.mkdir(path)
-        str_outfile         = '%s/file-ls.txt' % path
+        if not self.testType:
+            str_outfile         = '%s/file-ls.txt'      % path
+        else:
+            str_outfile         = '%s/file-count.txt'   % path
 
         with open(str_outfile, 'w') as f:
             self.dp.qprint("saving: %s" % (str_outfile), level = 5)
-            f.write('%s' % self.pp.pformat(d_outputInfo['l_file']))
+            if not self.testType:
+                f.write('%s`' % self.pp.pformat(d_outputInfo['l_file']))
+            else:
+                f.write('%d\n' % d_outputInfo['filesAnalyzed'])
         filesSaved += 1
         
         return {
