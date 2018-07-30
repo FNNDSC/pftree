@@ -19,7 +19,7 @@ import  pfmisc
 from    pfmisc._colors      import Colors
 from    pfmisc              import other
 
-str_version = "1.6.6"
+str_version = "1.6.8"
 str_desc = Colors.CYAN + """
 
 
@@ -202,15 +202,26 @@ def synopsis(ab_shortOnly = False):
 
     EXAMPLES
 
-    Run on a target tree and output some detail and stats
+    * Run on a target tree and output some detail and stats
 
-        pftree            -I /var/www/html                  \\
-                            --printElapsedTime              \\
-                            --stats -v -0 --json
+        pftree          -I /var/www/html                \\
+                        --printElapsedTime              \\
+                        --stats -v -0 --json
 
     which will output only at script conclusion and will log a JSON formatted 
     string.
 
+    * Run a test down a target tree:
+
+        pftree          -I /etc                         \\
+                        -O /tmp/test                    \\
+                        -v 1 -r                         \\
+                        --outputLeafDir 'preview-%%s'    \\
+                        --test 0
+
+    which will "copy" the input tree to the output, and save a file-ls.txt
+    in each directory where necessary. Note the ``-r`` for 'relative' directory
+    specification and the ``--outputLeafDir`` spec.
 
     ''' % (scriptName)
     if ab_shortOnly:
