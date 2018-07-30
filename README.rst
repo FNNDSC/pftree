@@ -174,6 +174,8 @@ test
 
 Run a test down a target tree:
 
+.. code:: bash
+
         pftree          -I /etc                         \
                         -O /tmp/test                    \
                         -v 1 -r                         \
