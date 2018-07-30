@@ -153,6 +153,9 @@ Command line arguments
 Examples
 ~~~~~~~~
 
+stats
+-----
+
 Run on a target tree and output some detail and stats
 
 .. code:: bash
@@ -162,3 +165,16 @@ Run on a target tree and output some detail and stats
                         --stats -v 0 --json
 
 which will output only at script conclusion and will log a JSON formatted string.
+
+test
+----
+
+Run a test down a target tree:
+
+        pftree          -I /etc                         \\
+                        -O /tmp/test                    \\
+                        -v 1 -r                         \\
+                        --outputLeafDir 'preview-%%s'    \\
+                        --test 0
+
+which will "copy" the input tree to the output, and save a file-ls.txt in each directory where necessary. Note the ``-r`` for 'relative' directory specification and the ``--outputLeafDir`` spec.
