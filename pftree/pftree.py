@@ -67,6 +67,7 @@ class pftree(object):
         #
         self.str_desc                   = ''
         self.__name__                   = "pftree"
+        self.str_version                = "1.6.12"
 
         # Object containing this class
         self.within                     = None
