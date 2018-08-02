@@ -39,14 +39,6 @@ class pftree(object):
 
     """
 
-    _dictErr = {
-        'inputDirFail'   : {
-            'action'        : 'trying to check on the input directory, ',
-            'error'         : 'directory not found. This is a *required* input',
-            'exitCode'      : 1}
-        }
-
-
     def declare_selfvars(self):
         """
         A block to declare self variables
@@ -55,7 +47,19 @@ class pftree(object):
             'inputDirFail'   : {
                 'action'        : 'trying to check on the input directory, ',
                 'error'         : 'directory not found. This is a *required* input',
-                'exitCode'      : 1}
+                'exitCode'      : 1},
+            'inputReadCallback' : {
+                'action'        : 'checking on the status of the inputReadCallback return, ',
+                'error'         : 'no boolean "status" was found. This is a *required* return key',
+                'exitCode'      : 2},
+            'analysisCallback'  : {
+                'action'        : 'checking on the status of the analysisCallback return, ',
+                'error'         : 'no boolean "status" was found. This is a *required* return key',
+                'exitCode'      : 3},
+            'outputWriteCallback' : {
+                'action'        : 'checking on the status of the outputWriteCallback return, ',
+                'error'         : 'no boolean "status" was found. This is a *required* return key',
+                'exitCode'      : 4}
             }
 
         #
@@ -412,12 +416,22 @@ class pftree(object):
                 ('%25s' %threading.currentThread().getName(), 
                  '%25s' % fn_inputReadCallback.__name__)
             )
+
             d_read = fn_inputReadCallback(
                 ('%s/%s' % (self.str_inputDir, path), data), **kwargs
             )
-            d_tree[path]    = d_read
-            if 'filesRead' in d_read.keys():
-                filesRead   += d_read['filesRead']
+
+            if 'status' in d_read.keys():
+                d_tree[path]    = d_read
+                if 'filesRead' in d_read.keys():
+                    filesRead   += d_read['filesRead']
+            else:
+                self.dp.qprint(
+                    "The inputReadCallback callback did not return a 'status' value!",
+                    comms = 'error',
+                    level = 0
+                )
+                error.fatal(self, 'inputReadCallback',  drawBox = True)
             return d_read
 
         def analysis_do(path, data, index, **kwargs):
@@ -429,18 +443,53 @@ class pftree(object):
                 ('%25s' % threading.currentThread().getName(), 
                  '%25s' % fn_analysisCallback.__name__)
             )
+
             d_analysis          = fn_analysisCallback(
                 ('%s/%s' % (self.str_inputDir, path), d_tree[path]), **kwargs
             )
-            if len(str_applyKey):
-                d_tree[path]    = d_analysis[str_applyKey]
+            
+            if 'status' in d_analysis.keys():
+                if d_analysis['status']:
+                    # Analysis was successful
+                    if len(str_applyKey):
+                        d_tree[path]    = d_analysis[str_applyKey]
+                    else:
+                        d_tree[path]    = d_analysis
+                    if 'filesAnalyzed' in d_analysis.keys():                
+                        filesAnalyzed       += d_analysis['filesAnalyzed']
+                    elif 'l_file' in d_analysis.keys():
+                        filesAnalyzed   += len(d_analysis['l_file'])
+                else:
+                    # If status was false, mark this key/path as
+                    # None
+                    d_tree[path]    = None
             else:
-                d_tree[path]    = d_analysis
-            if 'filesAnalyzed' in d_analysis.keys():                
-                filesAnalyzed       += d_analysis['filesAnalyzed']
-            elif 'l_file' in d_analysis.keys():
-                filesAnalyzed   += len(d_analysis['l_file'])
+                self.dp.qprint(
+                    "The analysis callback did not return a 'status' value!",
+                    comms = 'error',
+                    level = 0
+                )
+                error.fatal(self, 'analysisCallback',  drawBox = True)
             return d_analysis
+
+        def tree_removeDeadBranches():
+            """
+            It is possible that an analysis_do() run will in fact determine
+            that a given branch in the tree being processed does not in fact
+            have any files for processing. In that case, it sets a 'None' to
+            the corresponding dictionary entry in d_tree.
+
+            This method simply removes all those None branches from the 
+            d_tree dictionary -- creating a new copy of d_tree in the process
+            """
+            nonlocal d_tree
+            d_tree = { k : v for k, v in d_tree.items() if v}
+            # By creating a new binding for 'd_tree', we have effectively
+            # severed the connection back to the original dictionary.
+            # We now need to copy this d_tree to the self.d_inputTree 
+            # self.d_outputTree structures
+            self.d_inputTree    = d_tree
+            self.d_outputTree   = self.d_inputTree.copy()
 
         def outputSet_write(path, data):
             """
@@ -468,9 +517,18 @@ class pftree(object):
             d_output        = fn_outputWriteCallback(
                 ( '%s/%s' % (self.str_outputDir, path), data), **kwargs
             )
-            if not b_persistAnalysisResults:
-                d_tree[path]    = d_output
-            filesSaved          += d_output['filesSaved']
+
+            if 'status' in d_output.keys():
+                if not b_persistAnalysisResults:
+                    d_tree[path]    = d_output
+                filesSaved          += d_output['filesSaved']
+            else:
+                self.dp.qprint(
+                    "The outputWriteCallback callback did not return a 'status' value!",
+                    comms = 'error',
+                    level = 0
+                )
+                error.fatal(self, 'outputWriteCallback',  drawBox = True)
             return d_output
 
         def loop_nonThreaded():
@@ -489,11 +547,12 @@ class pftree(object):
             nonlocal dret_outputSet
 
             for path, data in self.d_inputTree.items():
-                # Read (is sometimes skipped) / Analyze / Write
+                # Read (is sometimes skipped) / Analyze / Write (also sometimes skipped)
                 if fn_inputReadCallback:    dret_inputSet   = inputSet_read(path, data)
                 if fn_analysisCallback:     dret_analyze    = analysis_do(path, d_tree[path], index)
                 if fn_outputWriteCallback:  dret_outputSet  = outputSet_write(path, d_tree[path])
                 index += 1
+            tree_removeDeadBranches()
 
         def loop_threaded():
             """
@@ -572,7 +631,7 @@ class pftree(object):
 
                 # And now batch them in groups
                 threadsInBatches_run(l_threadAnalysis)
-
+                tree_removeDeadBranches()
             # Write
             if fn_outputWriteCallback:
                 index   = 1
