@@ -19,7 +19,7 @@ import  pfmisc
 from    pfmisc._colors      import Colors
 from    pfmisc              import other
 
-str_version = "1.6.12"
+str_version = "1.6.14"
 str_desc = Colors.CYAN + """
 
 
@@ -165,6 +165,9 @@ def synopsis(ab_shortOnly = False):
         [--json]
         If specified, do a JSON dump of the entire return payload.
 
+        [--followLinks]
+        If specified, follow symbolic links.
+
         [--test <analysisDelayLength[:<type>]>]
         If specified, perform a test/dummy run through the 
 
@@ -302,6 +305,11 @@ parser.add_argument("--printElapsedTime",
                     dest    = 'printElapsedTime',
                     action  = 'store_true',
                     default = False)
+parser.add_argument("--followLinks",
+                    help    = "follow symbolic links",
+                    dest    = 'followLinks',
+                    action  = 'store_true',
+                    default = False)
 parser.add_argument('--version',
                     help    = 'if specified, print version number',
                     dest    = 'b_version',
@@ -337,6 +345,7 @@ pf_tree             = pftree.pftree(
                         json                = args.json,
                         jsonStats           = args.jsonStats,
                         test                = args.test,
+                        followLinks         = args.followLinks,
                         outputLeafDir       = args.outputLeafDir,
                         verbosity           = args.verbosity
                     )
