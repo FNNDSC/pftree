@@ -118,6 +118,9 @@ Command line arguments
         [--json]
         If specified, do a JSON dump of the entire return payload.
 
+        [--followLinks]
+        If specified, follow symbolic links.
+
         [--test <analysisDelayLength[:<type>]>]
         If specified, perform a test/dummy run through the 
 
