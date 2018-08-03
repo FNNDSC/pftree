@@ -92,6 +92,7 @@ class pftree(object):
         self.b_jsonStats                = False
         self.b_json                     = False
         self.b_test                     = False
+        self.b_followLinks              = False
         self.str_sleepLength            = ''
         self.f_sleepLength              = 0.0
         self.testType                   = 0
@@ -118,6 +119,7 @@ class pftree(object):
             if key == 'statsReverse':   self.b_statsReverse     = bool(value)
             if key == 'jsonStats':      self.b_jsonStats        = bool(value)
             if key == 'json':           self.b_json             = bool(value)
+            if key == 'followLinks':    self.b_followLinks      = bool(value)
             if key == 'test':           self.str_sleepLength    = value
             if key == 'outputLeafDir':  self.str_outputLeafDir  = value
 
@@ -181,7 +183,7 @@ class pftree(object):
         for k, v in kwargs.items():
             if k == 'root':  str_topDir  = v
 
-        for root, dirs, files in os.walk(str_topDir):
+        for root, dirs, files in os.walk(str_topDir, followlinks = self.b_followLinks):
             b_status = True
             str_path = root.split(os.sep)
             if dirs:
