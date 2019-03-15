@@ -67,7 +67,7 @@ class pftree(object):
         #
         self.str_desc                   = ''
         self.__name__                   = "pftree"
-        self.str_version                = "1.6.12"
+        self.str_version                = "2.0.0"
 
         # Object containing this class
         self.within                     = None
@@ -83,6 +83,7 @@ class pftree(object):
         self.d_inputTreeCallback        = {}
         self.d_outputTree               = {}
         self.str_outputLeafDir          = ''
+        self.maxdepth                   = -1
 
         # Flags
         self.b_persistAnalysisResults   = False
@@ -110,6 +111,7 @@ class pftree(object):
 
         for key, value in kwargs.items():
             if key == 'inputDir':       self.str_inputDir       = value
+            if key == 'maxDepth':       self.maxdepth           = int(value)
             if key == 'inputFile':      self.str_inputFile      = value
             if key == 'outputDir':      self.str_outputDir      = value
             if key == 'verbosity':      self.verbosityLevel     = int(value)
@@ -155,6 +157,30 @@ class pftree(object):
                                     stackDepth  = 2,
                                     level       = 2)
 
+    @staticmethod
+    # For finish path walking.
+    # Partially from https://stackoverflow.com/questions/229186/os-walk-without-digging-into-directories-below
+    # Edited.
+    def walklevel(path, depth = -1, **kwargs):
+        """It works just like os.walk, but you can pass it a level parameter
+        that indicates how deep the recursion will go.
+        If depth is -1 (or less than 0), the full depth is walked.
+        """
+        # if depth is negative, just walk
+        if depth < 0:
+            for root, dirs, files in os.walk(path, **kwargs):
+                yield root, dirs, files
+
+        # path.count works because is a file has a "/" it will show up in the list
+        # as a ":"
+        path    = path.rstrip(os.path.sep)
+        num_sep = path.count(os.path.sep)
+        for root, dirs, files in os.walk(path, **kwargs):
+            yield root, dirs, files
+            num_sep_this = root.count(os.path.sep)
+            if num_sep + depth <= num_sep_this:
+                del dirs[:]
+
     def tree_probe(self, **kwargs):
         """
         Perform an os walk down a file system tree, starting from
@@ -183,7 +209,10 @@ class pftree(object):
         for k, v in kwargs.items():
             if k == 'root':  str_topDir  = v
 
-        for root, dirs, files in os.walk(str_topDir, followlinks = self.b_followLinks):
+        # for root, dirs, files in os.walk(str_topDir, followlinks = self.b_followLinks):
+        for root, dirs, files in pftree.walklevel(str_topDir,
+                                                  self.maxdepth, 
+                                                  followlinks = self.b_followLinks):
             b_status = True
             str_path = root.split(os.sep)
             if dirs:

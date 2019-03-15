@@ -62,6 +62,11 @@ Command line arguments
         Input directory to examine. The downstream nested structure of this
         directory is examined and recreated in the <outputDir>.
 
+        [--maxdepth <dirDepth>]
+        The maximum depth to descend relative to the <inputDir>. Note, that
+        this counts from zero! Default of '-1' implies transverse the entire
+        directory tree.
+
         [-r|--relativeDir]
         A flag argument. If passed (i.e. True), then the dictionary key values
         are taken to be relative to the <inputDir>, i.e. the key values
