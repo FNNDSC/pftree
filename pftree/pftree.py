@@ -67,7 +67,7 @@ class pftree(object):
         #
         self.str_desc                   = ''
         self.__name__                   = "pftree"
-        self.str_version                = "2.0.0"
+        self.str_version                = "2.0.2"
 
         # Object containing this class
         self.within                     = None
@@ -579,11 +579,25 @@ class pftree(object):
             nonlocal dret_outputSet
 
             for path, data in self.d_inputTree.items():
+                dret_inputSet   = {}
+                dret_analyze    = {}
+                dret_outputSet  = {}
                 # Read (is sometimes skipped) / Analyze / Write (also sometimes skipped)
-                if fn_inputReadCallback:    dret_inputSet   = inputSet_read(path, data)
-                if fn_analysisCallback:     dret_analyze    = analysis_do(path, d_tree[path], index)
-                if fn_outputWriteCallback:  dret_outputSet  = outputSet_write(path, d_tree[path])
+                if fn_inputReadCallback:
+                    dret_inputSet   = inputSet_read(path, data)
+                if fn_analysisCallback:
+                    try:
+                        dret_analyze    = analysis_do(path, d_tree[path], index)
+                    except:
+                        dret_analyze['status']  = False
+                        self.dp.qprint("Analysis failed", comms = 'error')
+                        pudb.set_trace()
+                if fn_outputWriteCallback:
+                    if 'status' in dret_analyze.keys():
+                        if dret_analyze['status']:
+                            dret_outputSet  = outputSet_write(path, d_tree[path])
                 index += 1
+
             tree_removeDeadBranches()
 
         def loop_threaded():
