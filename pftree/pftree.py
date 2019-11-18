@@ -67,7 +67,7 @@ class pftree(object):
         #
         self.str_desc                   = ''
         self.__name__                   = "pftree"
-        self.str_version                = "2.0.2"
+        self.str_version                = "2.0.4"
 
         # Object containing this class
         self.within                     = None
@@ -591,7 +591,6 @@ class pftree(object):
                     except:
                         dret_analyze['status']  = False
                         self.dp.qprint("Analysis failed", comms = 'error')
-                        pudb.set_trace()
                 if fn_outputWriteCallback:
                     if 'status' in dret_analyze.keys():
                         if dret_analyze['status']:
