@@ -19,7 +19,7 @@ import  pfmisc
 from    pfmisc._colors      import Colors
 from    pfmisc              import other
 
-str_version = "2.0.0"
+str_version = "2.0.2"
 str_desc = Colors.CYAN + """
 
 
