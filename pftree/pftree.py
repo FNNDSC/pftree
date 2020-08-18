@@ -268,7 +268,7 @@ class pftree(object):
             index += 1
         return {
             'status':                   True,
-            'd_constructCalback':       d_constructCallback,
+            'd_constructCallback':      d_constructCallback,
             'totalNumberOfAllSeries':   index
         }
 

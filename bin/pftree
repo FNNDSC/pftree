@@ -19,26 +19,26 @@ import  pfmisc
 from    pfmisc._colors      import Colors
 from    pfmisc              import other
 
-str_version = "2.1.0"
+str_version = "2.1.2"
 str_desc = Colors.CYAN + """
 
 
-        __ _                 
-       / _| |                
- _ __ | |_| |_ _ __ ___  ___ 
-| '_ \|  _| __| '__/ _ \/ _ \\
-| |_) | | | |_| | |  __/  __/
-| .__/|_|  \__|_|  \___|\___|
-| |                          
-|_|                          
+        __ _                    
+       / _| |                   
+ _ __ | |_| |_ _ __ ___  ___    
+| '_ \|  _| __| '__/ _ \/ _ \   
+| |_) | | | |_| | |  __/  __/   
+| .__/|_|  \__|_|  \___|\___|   
+| |                             
+|_|                             
 
-  
+
 
                             Path-File tree structure
 
         Recursively walk down an input directory tree and create a dictionary
         representation of the path structure. Each tree "key" has a list
-        of files in that corresponding directory in the filesystem. 
+        of files in that corresponding directory in the filesystem.
 
                              -- version """ + \
              Colors.YELLOW + str_version + Colors.CYAN + """ --
@@ -89,12 +89,12 @@ def synopsis(ab_shortOnly = False):
         class that provides the internals for representing file system
         hierarchies in dictionary form.
 
-        As a convenience, however, the ``--stats`` or ``--statsRevers`` 
+        As a convenience, however, the ``--stats`` or ``--statsRevers``
         flags do provide a useful analog for sorted directory usage down
         a file system tree.
 
         Given an ``<inputDir>``, ``pftree`` will perform a recursive walk down
-        the directory tree. For each directory that contains files, 
+        the directory tree. For each directory that contains files,
         ``pftree`` will create a dictionary key of the directory path,
         and will store a list of filenames for the key value.
 
@@ -123,22 +123,22 @@ def synopsis(ab_shortOnly = False):
         contain the <inputDir>.
 
         [-i|--inputFile <inputFile>]
-        An optional <inputFile> specified relative to the <inputDir>. If 
+        An optional <inputFile> specified relative to the <inputDir>. If
         specified, then do not perform a directory walk, but target this
         specific file.
 
         [-O|--outputDir <outputDir>]
-        The directory to contain a tree structure identical to the input 
-        tree structure, and which contains all output files from the 
+        The directory to contain a tree structure identical to the input
+        tree structure, and which contains all output files from the
         per-input-dir processing.
 
         [--outputLeafDir <outputLeafDirFormat>]
         If specified, will apply the <outputLeafDirFormat> to the output
         directories containing data. This is useful to blanket describe
-        final output directories with some descriptive text, such as 
-        'anon' or 'preview'. 
+        final output directories with some descriptive text, such as
+        'anon' or 'preview'.
 
-        This is a formatting spec, so 
+        This is a formatting spec, so
 
             --outputLeafDir 'preview-%%s'
 
@@ -157,7 +157,7 @@ def synopsis(ab_shortOnly = False):
             * Only thread if you have a high CPU analysis loop. Note that
               the input file read and output file write loops are not
               threaded -- only the analysis loop is threaded. Thus, if the
-              bulk of execution time is in file IO, threading will not 
+              bulk of execution time is in file IO, threading will not
               really help.
 
             * Threading will change the nature of the innermost looping
@@ -165,7 +165,7 @@ def synopsis(ab_shortOnly = False):
               problem data will be read into memory! That means potentially
               all the target input file data across the entire input directory
               tree.
-              
+
         [--jsonStats]
         If specified, do a JSON dump of the stats.
 
@@ -176,7 +176,7 @@ def synopsis(ab_shortOnly = False):
         If specified, follow symbolic links.
 
         [--test <analysisDelayLength[:<type>]>]
-        If specified, perform a test/dummy run through the 
+        If specified, perform a test/dummy run through the
 
             - read
             - analyze
@@ -193,7 +193,7 @@ def synopsis(ab_shortOnly = False):
             :1  - write only the number of files analyzed to each outputdir,
                   i.e. a summary.
 
-        For large trees, ':0' can take a significantly longer time than 
+        For large trees, ':0' can take a significantly longer time than
         ':1'.
 
         [-x|--man]
@@ -203,7 +203,7 @@ def synopsis(ab_shortOnly = False):
         Show brief help.
 
         -v|--verbosity <level>
-        Set the app verbosity level. 
+        Set the app verbosity level.
 
             0: No internal output;
             1: Most important internal output, i.e. sorted stat results;
@@ -218,7 +218,7 @@ def synopsis(ab_shortOnly = False):
                         --printElapsedTime              \\
                         --stats -v -0 --json
 
-    which will output only at script conclusion and will log a JSON formatted 
+    which will output only at script conclusion and will log a JSON formatted
     string.
 
     * Run a test down a target tree:
@@ -365,9 +365,9 @@ pf_tree             = pftree.pftree(
 # And now run it!
 d_pftree = pf_tree.run(timerStart = True)
 
-if args.printElapsedTime: 
+if args.printElapsedTime:
     pf_tree.dp.qprint(
-                        "Elapsed time = %f seconds" % 
+                        "Elapsed time = %f seconds" %
                         d_pftree['runTime']
                     )
 
