@@ -4,7 +4,7 @@ import      getpass
 import      argparse
 import      json
 import      pprint
-import      time 
+import      time
 
 # Project specific imports
 import      pfmisc
@@ -18,7 +18,7 @@ import      threading
 
 class pftree(object):
     """
-    A class that constructs a dictionary represenation of the paths in a filesystem. 
+    A class that constructs a dictionary represenation of the paths in a filesystem.
 
     The "keys" are the paths (relative to some root dir), and the "value" is a list
     of files in that path.
@@ -29,11 +29,11 @@ class pftree(object):
         * tree_construct()          - construct the "input" and "output" dictionary:
                                         -- <keys> are directory path names
                                         -- <val> list of files in <keys> path
-        * tree_analysisApply        - apply arbitrary analysis on the files in each 
+        * tree_analysisApply        - apply arbitrary analysis on the files in each
                                       directory of the "input" tree. Results are usually
-                                      saved to "output" tree, but can in fact 
-                                      be saved to "input" tree instead (if for example 
-                                      some filter operation on the input tree files 
+                                      saved to "output" tree, but can in fact
+                                      be saved to "input" tree instead (if for example
+                                      some filter operation on the input tree files
                                       is required). See the method itself for calling
                                       syntax and **kwargs behavior.
 
@@ -67,7 +67,7 @@ class pftree(object):
         #
         self.str_desc                   = ''
         self.__name__                   = "pftree"
-        self.str_version                = "2.0.4"
+        self.str_version                = "2.1.0"
 
         # Object containing this class
         self.within                     = None
@@ -137,7 +137,7 @@ class pftree(object):
                 self.b_test             = False
 
         # Set logging
-        self.dp                        = pfmisc.debug(    
+        self.dp                        = pfmisc.debug(
                                             verbosity   = self.verbosityLevel,
                                             within      = self.__name__
                                             )
@@ -153,7 +153,7 @@ class pftree(object):
         f_percent   = index/total*100
         str_num     = "[%3d/%3d: %6.2f%%] " % (index, total, f_percent)
         str_bar     = "*" * int(f_percent)
-        self.dp.qprint("%s%s%s" % ( str_pretext, str_num, str_bar), 
+        self.dp.qprint("%s%s%s" % ( str_pretext, str_num, str_bar),
                                     stackDepth  = 2,
                                     level       = 2)
 
@@ -184,7 +184,7 @@ class pftree(object):
     def tree_probe(self, **kwargs):
         """
         Perform an os walk down a file system tree, starting from
-        a **kwargs identified 'root', and return lists of files and 
+        a **kwargs identified 'root', and return lists of files and
         directories found.
 
         kwargs:
@@ -211,7 +211,7 @@ class pftree(object):
 
         # for root, dirs, files in os.walk(str_topDir, followlinks = self.b_followLinks):
         for root, dirs, files in pftree.walklevel(str_topDir,
-                                                  self.maxdepth, 
+                                                  self.maxdepth,
                                                   followlinks = self.b_followLinks):
             b_status = True
             str_path = root.split(os.sep)
@@ -224,7 +224,7 @@ class pftree(object):
                 l_filesHere = [root + '/' + y for y in files]
                 if len(self.str_inputFile):
                     l_hit = [s for s in l_filesHere if self.str_inputFile in s]
-                    if l_hit: 
+                    if l_hit:
                         l_filesHere = l_hit
                     else:
                         l_filesHere = []
@@ -268,7 +268,7 @@ class pftree(object):
             index += 1
         return {
             'status':                   True,
-            'd_constructCalback':       d_constructCallback,   
+            'd_constructCalback':       d_constructCallback,
             'totalNumberOfAllSeries':   index
         }
 
@@ -278,7 +278,7 @@ class pftree(object):
             if abs(num) < 1024.0:
                 return "%3.1f%s%s" % (num, unit, suffix)
             num /= 1024.0
-        return "%.1f%s%s" % (num, 'Yi', suffix)        
+        return "%.1f%s%s" % (num, 'Yi', suffix)
 
     @staticmethod
     def dirsize_get(l_filesWithoutPath, **kwargs):
@@ -328,37 +328,37 @@ class pftree(object):
             * Actual processing
             * Output writing
 
-        The method will loop over all the "paths" in <inputTree>, and for each 
+        The method will loop over all the "paths" in <inputTree>, and for each
         "path" call the inputRead/dataAnalysis/outputWrite callbacks in order.
 
-        If this pftree object is initialized as multi-threaded, only the 
+        If this pftree object is initialized as multi-threaded, only the
         dataAnalysis callback is actually threaded. The read and write
-        file IO callbacks are run sequentially for efficiency (threaded 
+        file IO callbacks are run sequentially for efficiency (threaded
         file IO is horribly inefficient and actually degrades in linear
         proportion to the number of threads).
-        
+
         The results of the analysis are typically stored in the corresponding
-        path in the <outputTree> (unless 'persistAnalysisResults' == False); 
+        path in the <outputTree> (unless 'persistAnalysisResults' == False);
         however, results can also be applied to the <inputTree> (see below).
 
         The results of the dataAnalysisCallback are usually stored in the
-        outputTree at a path corresponding to the inputTree. If 
+        outputTree at a path corresponding to the inputTree. If
 
             kwargs:     applyTo     = 'inputTree'
 
-        is passed, then the results are saved to the <inputTree> instead. 
-        
-        Furthermore, if 
+        is passed, then the results are saved to the <inputTree> instead.
+
+        Furthermore, if
 
             kwargs:     applyKey    = 'someKey'
 
-        is passed, then only the results of 'someKey' in the returned 
+        is passed, then only the results of 'someKey' in the returned
         dictionary are saved.
 
         Thus, an enclosing class can call this method to, for example, filter
         the list of files at each path location by:
 
-            pftree.tree_process(  
+            pftree.tree_process(
                                 ...
                         analysisCallback        =  fn_filterFileList,
                         applyResultsTo          = 'inputTree',
@@ -366,14 +366,14 @@ class pftree(object):
             )
 
         will apply the callback function, fn_filterFileList and return some
-        filtered list in its return dictionary at key == 'files'. This 
+        filtered list in its return dictionary at key == 'files'. This
         dictionary value is stored in the <inputTree>.
 
-        Finally, if either 
+        Finally, if either
 
             self.b_peristOutputResults  = True
 
-        or 
+        or
 
             kwargs: peristOutputResults = True
 
@@ -381,16 +381,16 @@ class pftree(object):
         <outputTree> path. This can become prohibitively large in memory if
         operations are applied that seek to save large results at each
         directory (like dicom anon, for example). In that case, passing/setting
-        a <False> will not save results in the <outputTree> (other than a 
+        a <False> will not save results in the <outputTree> (other than a
         boolean status) and will immediately do a callback on the results
         to process them. In this case, a kwargs
 
             kwags:  outputcallback      = self.fn_outputcallback
 
-        is called on the dictionary result of the analysiscallback method. The 
+        is called on the dictionary result of the analysiscallback method. The
         result of this outputcallback is saved to the <outputTree> instead.
 
-        Note that threading the analysisCallback will effectively result in 
+        Note that threading the analysisCallback will effectively result in
         output results being persistent across the entire tree (since the execution
         loop finishes each step sequenitally: all input IO, thread analysis, all
         output IO).
@@ -405,7 +405,7 @@ class pftree(object):
         d_tree                      = self.d_outputTree
         str_processType             = ''
         dret_inputSet               = {}
-        dret_analysis               = {}
+        dret_analyze                = {}
         dret_outputSet              = {}
         filesRead                   = 0
         filesAnalyzed               = 0
@@ -444,8 +444,8 @@ class pftree(object):
             nonlocal    d_tree
             nonlocal    fn_inputReadCallback
 
-            self.simpleProgress_show(index, total, '%s:%s' % 
-                ('%25s' %threading.currentThread().getName(), 
+            self.simpleProgress_show(index, total, '%s:%s' %
+                ('%25s' %threading.currentThread().getName(),
                  '%25s' % fn_inputReadCallback.__name__)
             )
 
@@ -471,15 +471,15 @@ class pftree(object):
             nonlocal    d_tree
             nonlocal    fn_analysisCallback
 
-            self.simpleProgress_show(index, total, '%s:%s' % 
-                ('%25s' % threading.currentThread().getName(), 
+            self.simpleProgress_show(index, total, '%s:%s' %
+                ('%25s' % threading.currentThread().getName(),
                  '%25s' % fn_analysisCallback.__name__)
             )
 
             d_analysis          = fn_analysisCallback(
                 ('%s/%s' % (self.str_inputDir, path), d_tree[path]), **kwargs
             )
-            
+
             if 'status' in d_analysis.keys():
                 if d_analysis['status']:
                     # Analysis was successful
@@ -487,7 +487,7 @@ class pftree(object):
                         d_tree[path]    = d_analysis[str_applyKey]
                     else:
                         d_tree[path]    = d_analysis
-                    if 'filesAnalyzed' in d_analysis.keys():                
+                    if 'filesAnalyzed' in d_analysis.keys():
                         filesAnalyzed       += d_analysis['filesAnalyzed']
                     elif 'l_file' in d_analysis.keys():
                         filesAnalyzed   += len(d_analysis['l_file'])
@@ -511,14 +511,14 @@ class pftree(object):
             have any files for processing. In that case, it sets a 'None' to
             the corresponding dictionary entry in d_tree.
 
-            This method simply removes all those None branches from the 
+            This method simply removes all those None branches from the
             d_tree dictionary -- creating a new copy of d_tree in the process
             """
             nonlocal d_tree
             d_tree = { k : v for k, v in d_tree.items() if v}
             # By creating a new binding for 'd_tree', we have effectively
             # severed the connection back to the original dictionary.
-            # We now need to copy this d_tree to the self.d_inputTree 
+            # We now need to copy this d_tree to the self.d_inputTree
             # self.d_outputTree structures
             self.d_inputTree    = d_tree
             self.d_outputTree   = self.d_inputTree.copy()
@@ -534,8 +534,8 @@ class pftree(object):
             nonlocal    fn_analysisCallback
             nonlocal    b_persistAnalysisResults
 
-            self.simpleProgress_show(index, total, '%s:%s' % 
-                ('%25s' % threading.currentThread().getName(), 
+            self.simpleProgress_show(index, total, '%s:%s' %
+                ('%25s' % threading.currentThread().getName(),
                  '%25s' % fn_outputWriteCallback.__name__)
             )
 
@@ -563,6 +563,31 @@ class pftree(object):
                 error.fatal(self, 'outputWriteCallback',  drawBox = True)
             return d_output
 
+        def status_determine():
+            """
+            Return the status as a function of the individual status values
+            of each of input/analyze/output.
+            """
+            b_status        = False
+            b_statusInput   = True
+            b_statusAnalyze = True
+            b_statusOutput  = True
+            nonlocal dret_inputSet
+            nonlocal dret_analyze
+            nonlocal dret_outputSet
+
+            if 'status' in dret_inputSet.keys():
+                b_statusInput   = dret_inputSet['status']
+            if 'status' in dret_analyze.keys():
+                b_statusAnalyze = dret_analyze['status']
+            if 'status' in dret_outputSet.keys():
+                b_statusOutput  = dret_outputSet['status']
+
+            b_status = b_statusInput and b_statusAnalyze and b_statusOutput
+            return {
+                'status': b_status
+            }
+
         def loop_nonThreaded():
             """
             Loop over the problem domain space and process
@@ -575,7 +600,7 @@ class pftree(object):
             nonlocal fn_analysisCallback
             nonlocal fn_outputWriteCallback
             nonlocal dret_inputSet
-            nonlocal dret_analysis
+            nonlocal dret_analyze
             nonlocal dret_outputSet
 
             for path, data in self.d_inputTree.items():
@@ -605,7 +630,7 @@ class pftree(object):
             the three main components (read, analysis, write)
             in thread-friendly order.
 
-            This means performing *all* the reads sequentially 
+            This means performing *all* the reads sequentially
             (non threaded), followed by the analysis threaded into
             batches, followed by the writes all sequentially.
             """
@@ -615,7 +640,7 @@ class pftree(object):
             nonlocal fn_analysisCallback
             nonlocal fn_outputWriteCallback
             nonlocal dret_inputSet
-            nonlocal dret_analysis
+            nonlocal dret_analyze
             nonlocal dret_outputSet
 
             def thread_createOnFunction(path, data, str_namePrefix, fn_thread):
@@ -643,20 +668,20 @@ class pftree(object):
                 threadRem           = total % self.numThreads
                 alreadyRunCount = thread_batch(
                                         l_threadAnalysis,
-                                        threadFullLoops, 
-                                        self.numThreads, 
+                                        threadFullLoops,
+                                        self.numThreads,
                                         0)
                 nextRunCount    =  thread_batch(
                                         l_threadAnalysis,
-                                        1, 
-                                        threadRem, 
+                                        1,
+                                        threadRem,
                                         alreadyRunCount)
 
             # Read
             if fn_inputReadCallback:
                 index = 1
                 for path, data in self.d_inputTree.items():
-                    dret_inputSet   = inputSet_read(path, data)                    
+                    dret_inputSet   = inputSet_read(path, data)
                     # filesRead       += dret_inputSet['filesRead']
                     index += 1
 
@@ -692,15 +717,15 @@ class pftree(object):
             if k == 'applyResultsTo':           str_applyResultsTo          = v
             if k == 'applyKey':                 str_applyKey                = v
             if k == 'persistAnalysisResults':   b_persistAnalysisResults    = v
-        
-        if str_applyResultsTo == 'inputTree': 
+
+        if str_applyResultsTo == 'inputTree':
             d_tree          = self.d_inputTree
 
         index               = 1
         total               = len(self.d_inputTree.keys())
         l_threadAnalysis    = []
 
-        if not self.numThreads: 
+        if not self.numThreads:
             loop_nonThreaded()
             str_processType     = "Not threaded"
         else:
@@ -710,12 +735,15 @@ class pftree(object):
         # pudb.set_trace()
 
         return {
-            'status':               True,
+            'status':               status_determine()['status'],
             'processType':          str_processType,
             'fileSetsProcessed':    index,
             'filesRead':            filesRead,
             'filesAnalyzed':        filesAnalyzed,
-            'filesSaved':           filesSaved
+            'filesSaved':           filesSaved,
+            'd_inputCallback':      dret_inputSet,
+            'd_analyzeCallback':    dret_analyze,
+            'd_outputCallback':     dret_outputSet
         }
 
     def tree_analysisOutput(self, *args, **kwargs):
@@ -751,13 +779,13 @@ class pftree(object):
         l_stats         = []
         d_report        = {}
 
-        for k, v in sorted(self.d_inputTreeCallback.items(), 
+        for k, v in sorted(self.d_inputTreeCallback.items(),
                             key         = lambda kv: (kv[1]['diskUsage_raw']),
                             reverse     = self.b_statsReverse):
             str_report  = "files: %5d; raw size: %12d; human size: %8s; %s" % (\
-                    len(self.d_inputTree[k]), 
-                    self.d_inputTreeCallback[k]['diskUsage_raw'], 
-                    self.d_inputTreeCallback[k]['diskUsage_human'], 
+                    len(self.d_inputTree[k]),
+                    self.d_inputTreeCallback[k]['diskUsage_raw'],
+                    self.d_inputTreeCallback[k]['diskUsage_human'],
                     k)
             d_report = {
                 'files':            len(self.d_inputTree[k]),
@@ -786,7 +814,7 @@ class pftree(object):
         Test for inputReadCallback
 
         This method does not actually "read" the input files,
-        but simply returns the passed file list back to 
+        but simply returns the passed file list back to
         caller
         """
         b_status    = True
@@ -801,9 +829,9 @@ class pftree(object):
             str_path        = at_data[0]
             l_file          = at_data[1]
 
-        self.dp.qprint("reading (in path %s):\n%s" % 
-                            (str_path, 
-                            self.pp.pformat(l_file)), 
+        self.dp.qprint("reading (in path %s):\n%s" %
+                            (str_path,
+                            self.pp.pformat(l_file)),
                             level = 5)
         filesRead   = len(l_file)
 
@@ -815,12 +843,12 @@ class pftree(object):
             'str_path':         str_path,
             'filesRead':        filesRead
         }
-        
+
     def inputAnalyzeCallback(self, *args, **kwargs):
         """
         Test method for inputAnalzeCallback
 
-        This method loops over the passed number of files, 
+        This method loops over the passed number of files,
         and optionally "delays" in each loop to simulate
         some analysis. The delay length is specified by
         the '--test <delay>' flag.
@@ -840,8 +868,8 @@ class pftree(object):
             d_read          = at_data[1]
 
         b_status        = True
-        self.dp.qprint("analyzing:\n%s" % 
-                                self.pp.pformat(d_read['l_file']), 
+        self.dp.qprint("analyzing:\n%s" %
+                                self.pp.pformat(d_read['l_file']),
                                 level = 5)
         if int(self.f_sleepLength):
             self.dp.qprint("sleeping for: %f" % self.f_sleepLength, level = 5)
@@ -878,7 +906,7 @@ class pftree(object):
             else:
                 f.write('%d\n' % d_outputInfo['filesAnalyzed'])
         filesSaved += 1
-        
+
         return {
             'status':       True,
             'outputFile':   str_outfile,
@@ -922,7 +950,7 @@ class pftree(object):
         if not os.path.exists(self.str_inputDir):
             b_status    = False
             self.dp.qprint(
-                    "input directory either not specified or does not exist.", 
+                    "input directory either not specified or does not exist.",
                     comms = 'error'
             )
             error.warn(self, 'inputDirFail', exitToOS = True, drawBox = True)
@@ -936,11 +964,11 @@ class pftree(object):
             else:
                 str_rootDir     = self.str_inputDir
 
-            d_probe     = self.tree_probe(      
+            d_probe     = self.tree_probe(
                 root    = str_rootDir
             )
             b_status    = b_status and d_probe['status']
-            d_tree      = self.tree_construct(  
+            d_tree      = self.tree_construct(
                 l_files             = d_probe['l_files'],
                 constructCallback   = self.dirsize_get
             )
@@ -978,4 +1006,3 @@ class pftree(object):
             print(json.dumps(d_ret, indent = 4, sort_keys = True))
 
         return d_ret
-        
