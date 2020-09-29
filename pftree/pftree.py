@@ -575,13 +575,19 @@ class pftree(object):
             nonlocal dret_inputSet
             nonlocal dret_analyze
             nonlocal dret_outputSet
+            nonlocal fn_inputReadCallback
+            nonlocal fn_analysisCallback
+            nonlocal fn_outputWriteCallback
 
-            if 'status' in dret_inputSet.keys():
-                b_statusInput   = dret_inputSet['status']
-            if 'status' in dret_analyze.keys():
-                b_statusAnalyze = dret_analyze['status']
-            if 'status' in dret_outputSet.keys():
-                b_statusOutput  = dret_outputSet['status']
+            if fn_inputReadCallback:
+                if 'status' in dret_inputSet.keys():
+                    b_statusInput   = dret_inputSet['status']
+            if fn_analysisCallback:
+                if 'status' in dret_analyze.keys():
+                    b_statusAnalyze = dret_analyze['status']
+            if fn_outputWriteCallback:
+                if 'status' in dret_outputSet.keys():
+                    b_statusOutput  = dret_outputSet['status']
 
             b_status = b_statusInput and b_statusAnalyze and b_statusOutput
             return {
@@ -593,6 +599,12 @@ class pftree(object):
             Loop over the problem domain space and process
             the three main components (read, analysis, write)
             in sequential order.
+
+            The status for each operation (read, analysis, write)
+            is the logical OR over the status results of each individual
+            directory node. Thus, a False for a specific operation
+            indicates that ALL operations over the space of directory
+            nodes failed.
             """
             nonlocal index, total
             nonlocal d_tree
@@ -603,25 +615,43 @@ class pftree(object):
             nonlocal dret_analyze
             nonlocal dret_outputSet
 
+            b_analyzeStatusHist:    bool = False
+            b_inputStatusHist:      bool = False
+            b_outputStatusHist:     bool = False
+
             for path, data in self.d_inputTree.items():
                 dret_inputSet   = {}
                 dret_analyze    = {}
                 dret_outputSet  = {}
                 # Read (is sometimes skipped) / Analyze / Write (also sometimes skipped)
                 if fn_inputReadCallback:
-                    dret_inputSet   = inputSet_read(path, data)
+                    dret_inputSet       = inputSet_read(path, data)
+                    try:
+                        b_inputStatusHist   = b_inputStatusHist or dret_inputSet['status']
+                    except:
+                        pass
                 if fn_analysisCallback:
                     try:
                         dret_analyze    = analysis_do(path, d_tree[path], index)
                     except:
                         dret_analyze['status']  = False
                         self.dp.qprint("Analysis failed", comms = 'error')
+                    try:
+                        b_analyzeStatusHist = b_analyzeStatusHist or dret_analyze['status']
+                    except:
+                        pass
                 if fn_outputWriteCallback:
                     if 'status' in dret_analyze.keys():
                         if dret_analyze['status']:
                             dret_outputSet  = outputSet_write(path, d_tree[path])
+                            try:
+                                b_outputStatusHist  = b_outputStatusHist or dret_outputSet['status']
+                            except:
+                                pass
                 index += 1
-
+            dret_inputSet['status']     = b_inputStatusHist
+            dret_analyze['status']      = b_analyzeStatusHist
+            dret_outputSet['status']    = b_outputStatusHist
             tree_removeDeadBranches()
 
         def loop_threaded():
