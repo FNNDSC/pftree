@@ -22,7 +22,7 @@ Quick Overview
 Overview
 --------
 
-``pftree`` recursively walks down an input directory tree and creates a dictionary representation of the path structure. Each tree "key" has a list of files in that corresponding directory in the filesystem. 
+``pftree`` recursively walks down an input directory tree and creates a dictionary representation of the path structure. Each tree "key" has a list of files in that corresponding directory in the filesystem.
 
 ``pftree`` in and of itself is does not really do any work. It is a class that provides the internals for representing file system hierarchies in dictionary form.
 
@@ -58,7 +58,7 @@ Command line arguments
 
 .. code:: html
 
-        -I|--inputDir <inputDir>
+        --inputDir <inputDir>
         Input directory to examine. The downstream nested structure of this
         directory is examined and recreated in the <outputDir>.
 
@@ -67,29 +67,29 @@ Command line arguments
         this counts from zero! Default of '-1' implies transverse the entire
         directory tree.
 
-        [-r|--relativeDir]
+        [--relativeDir]
         A flag argument. If passed (i.e. True), then the dictionary key values
         are taken to be relative to the <inputDir>, i.e. the key values
         will not contain the <inputDir>; otherwise the key values will
         contain the <inputDir>.
 
-        [-i|--inputFile <inputFile>]
-        An optional <inputFile> specified relative to the <inputDir>. If 
+        [--inputFile <inputFile>]
+        An optional <inputFile> specified relative to the <inputDir>. If
         specified, then do not perform a directory walk, but target this
         specific file.
 
-        [-O|--outputDir <outputDir>]
-        The directory to contain a tree structure identical to the input 
-        tree structure, and which contains all output files from the 
+        [--outputDir <outputDir>]
+        The directory to contain a tree structure identical to the input
+        tree structure, and which contains all output files from the
         per-input-dir processing.
 
         [--outputLeafDir <outputLeafDirFormat>]
         If specified, will apply the <outputLeafDirFormat> to the output
         directories containing data. This is useful to blanket describe
-        final output directories with some descriptive text, such as 
-        'anon' or 'preview'. 
+        final output directories with some descriptive text, such as
+        'anon' or 'preview'.
 
-        This is a formatting spec, so 
+        This is a formatting spec, so
 
             --outputLeafDir 'preview-%%s'
 
@@ -97,18 +97,14 @@ Command line arguments
         final directory containing output with the text 'preview-' which
         can be useful in describing some features of the output set.
 
-        [--stats | --statsReverse]
-        If specified, return some stats to caller -- summary list ordered
-        by directory size (--statsReverse does a reverse sort).
-
-        [-t|--threads <numThreads>]
+        [--threads <numThreads>]
         If specified, break the innermost analysis loop into <numThreads>
         threads. Please note the following caveats:
 
             * Only thread if you have a high CPU analysis loop. Note that
               the input file read and output file write loops are not
               threaded -- only the analysis loop is threaded. Thus, if the
-              bulk of execution time is in file IO, threading will not 
+              bulk of execution time is in file IO, threading will not
               really help.
 
             * Threading will change the nature of the innermost looping
@@ -116,9 +112,6 @@ Command line arguments
               problem data will be read into memory! That means potentially
               all the target input file data across the entire input directory
               tree.
-              
-        [--jsonStats]
-        If specified, do a JSON dump of the stats.
 
         [--json]
         If specified, do a JSON dump of the entire return payload.
@@ -126,8 +119,31 @@ Command line arguments
         [--followLinks]
         If specified, follow symbolic links.
 
+        [--man]
+        Show full help.
+
+        [--synopsis]
+        Show brief help.
+
+        [--verbosity <level>]
+        Set the app verbosity level. This ranges from 0...<N> where internal
+        log messages with a level=<M> will only display if M <= N. In this
+        manner increasing the level here can be used to show more and more
+        debugging info, assuming that debug messages in the code have been
+        tagged with a level.
+
+        [--stats | --statsReverse]
+        If specified, return some stats to caller -- summary list ordered
+        by directory size (--statsReverse does a reverse sort).
+
+        [--jsonStats]
+        If specified, do a JSON dump of the stats.
+
+        [--syslog]
+        If specified, prepend output 'log' messages in syslog style.
+
         [--test <analysisDelayLength[:<type>]>]
-        If specified, perform a test/dummy run through the 
+        If specified, perform a test/dummy run through the
 
             - read
             - analyze
@@ -144,22 +160,8 @@ Command line arguments
             :1  - write only the number of files analyzed to each outputdir,
                   i.e. a summary.
 
-        For large trees, ':0' can take a significantly longer time than 
+        For large trees, ':0' can take a significantly longer time than
         ':1'.
-
-        [-x|--man]
-        Show full help.
-
-        [-y|--synopsis]
-        Show brief help.
-
-        -v|--verbosity <level>
-        Set the app verbosity level. 
-
-            0: No internal output;
-            1: Most important internal output, i.e. sorted stat results;
-            2: As with level '1' but with simpleProgress bar;
-            3: As with level '2' but with list of input dirs/files;
 
 Examples
 --------
@@ -171,9 +173,9 @@ Run on a target tree and output some detail and stats
 
 .. code:: bash
 
-        pftree          -I /var/www/html                \
-                        --printElapsedTime              \
-                        --stats -v 0 --json
+        pftree          --inputDir /var/www/html                                \
+                        --printElapsedTime                                      \
+                        --stats --verbosity 0 --json
 
 which will output only at script conclusion and will log a JSON formatted string.
 
@@ -184,10 +186,12 @@ Run a test down a target tree:
 
 .. code:: bash
 
-        pftree          -I /etc                         \
-                        -O /tmp/test                    \
-                        -v 1 -r                         \
-                        --outputLeafDir 'preview-%s'    \
+        pftree          --inputDir /etc                                         \
+                        --outputDir /tmp/test                                   \
+                        --verbosity 1 --relativeDir                             \
+                        --outputLeafDir 'preview-%%s'                           \
                         --test 0
 
 which will "copy" the input tree to the output, and save a file-ls.txt in each directory where necessary. Note the ``-r`` for 'relative' directory specification and the ``--outputLeafDir`` spec.
+
+_-30-_

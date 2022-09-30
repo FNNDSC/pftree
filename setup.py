@@ -12,7 +12,7 @@ def readme():
 
 setup(
       name             =   'pftree',
-      version          =   '2.2.0',
+      version          =   '3.0.0',
       description      =   'Utility to create dict representations of file system trees.',
       long_description =   readme(),
       author           =   'FNNDSC',
@@ -20,9 +20,11 @@ setup(
       url              =   'https://github.com/FNNDSC/pftree',
       packages         =   ['pftree'],
       install_requires =   ['pfmisc', 'pudb'],
-      #test_suite       =   'nose.collector',
-      #tests_require    =   ['nose'],
-      scripts          =   ['bin/pftree'],
+      entry_points={
+          'console_scripts': [
+              'pftree = pftree.__main__:main'
+          ]
+      },
       license          =   'MIT',
       zip_safe         =   False
 )
