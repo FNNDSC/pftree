@@ -104,10 +104,13 @@ class pftree(object):
         self.pp                         = pprint.PrettyPrinter(indent=4)
         self.verbosityLevel             = 1
 
-    def __init__(self, **kwargs):
+    def __init__(self, *args, **kwargs):
 
         # pudb.set_trace()
         self.declare_selfvars()
+        self.args                       = args[0]
+        if len(self.args):
+            kwargs  = {**self.args, **kwargs}
 
         for key, value in kwargs.items():
             if key == 'inputDir':       self.str_inputDir       = value
@@ -139,7 +142,8 @@ class pftree(object):
         # Set logging
         self.dp                        = pfmisc.debug(
                                             verbosity   = self.verbosityLevel,
-                                            within      = self.__name__
+                                            within      = self.__name__,
+                                            syslog      = self.args['syslog']
                                             )
         self.log                       = pfmisc.Message()
         self.log.syslog(True)
