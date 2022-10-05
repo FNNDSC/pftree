@@ -19,7 +19,7 @@ setup(
       author_email     =   'dev@babymri.org',
       url              =   'https://github.com/FNNDSC/pftree',
       packages         =   ['pftree'],
-      install_requires =   ['pfmisc', 'pudb'],
+      install_requires =   ['tqdm', 'pfmisc', 'pudb'],
       entry_points={
           'console_scripts': [
               'pftree = pftree.__main__:main'
