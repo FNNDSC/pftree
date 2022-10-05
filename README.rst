@@ -24,7 +24,7 @@ Overview
 
 Given an ``<inputDir>``, ``pftree`` will perform a recursive walk down the directory tree. For each directory that contains files, ``pftree`` will create a dictionary key of the directory path, and will store a list of filenames for the key value.
 
-``pftree`` in and of itself is does not really do any work. It is a class that provides the internals for representing file system hierarchies in dictionary form. As a convenience, however, the ``--stats`` or ``--statsReverse`` do provide a useful analog for sorted directory usage down a file system tree.
+``pftree`` in and of itself does not really do any work. It is a class/module that abstracts the internals for representing file system hierarchies in dictionary form to be used by other modules. As a convenience, however, the ``--stats`` or ``--statsReverse`` do provide a useful analog for sorted directory usage down a file system tree.
 
 Several simple file and directory name filters can be applied which can facilitate the targetting of very specific elements in a file system tree.
 
