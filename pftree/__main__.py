@@ -7,6 +7,7 @@
 #                        dev@babyMRI.org
 #
 
+import  pudb
 import sys, os
 sys.path.insert(1, os.path.join(os.path.dirname(__file__), '../pftree'))
 
@@ -20,7 +21,6 @@ except:
 
 from    argparse            import RawTextHelpFormatter
 from    argparse            import ArgumentParser
-import  pudb
 
 import  pfmisc
 from    pfmisc._colors      import Colors

@@ -19,6 +19,11 @@ import      threading
 from        tqdm                import  tqdm
 import      pathlib
 
+try:
+    from    .                   import __name__, __version__
+except:
+    from    __init__            import __name__, __version__
+
 class slog(object):
     """
     A simple class that simply appends to an internal
@@ -175,8 +180,8 @@ class pftree(object):
         # Object desc block
         #
         self.str_desc                   = ''
-        self.__name__                   = "pftree"
-        self.str_version                = "2.1.0"
+        self.__name__                   = __name__
+        self.str_version                = __version__
 
         # Object containing this class
         self.within                     = None
