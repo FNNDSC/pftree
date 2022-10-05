@@ -1,5 +1,6 @@
 # System imports
 import      os
+import      sys
 import      getpass
 import      argparse
 import      json
@@ -15,6 +16,114 @@ from        pfmisc              import  error
 import      pudb
 
 import      threading
+from        tqdm                import  tqdm
+import      pathlib
+
+class slog(object):
+    """
+    A simple class that simply appends to an internal
+    'payload' each time it is called and which provides
+    some "pretty printing" functionality
+    """
+
+    def syslog(self, *args):
+        if len(args):
+            self.b_syslog = args[0]
+        else:
+            return self.b_syslog
+
+    def __init__(self, *args, **kwargs):
+        self.str_payload    : str   = ""
+        self.b_syslog       : bool  = False
+        self.str_title      : str   = ""
+        self.l_padding      : int   = 2
+        self.r_padding      : int   = 2
+        self.b_3D           : bool  = False
+        self.str_shadow     : str   = ''
+
+    def clear(self):
+        self.str_payload    = ""
+
+    def render3D(self):
+        self.b_3D           = True
+        self.str_shadow     = "█"
+
+    def title_set(self, str_title):
+        self.str_title      = str_title
+
+    def __call__(self, astr):
+        self.str_payload += str(astr)
+
+    def json_dump(self):
+        """
+        Dump the payload as a simple JSON object
+        """
+        return {
+            'log': {
+                'title':    self.str_title,
+                'body':      self.str_payload
+            }
+        }
+
+    def border_draw(self, **kwargs):
+
+        def title_draw():
+            """Draw the title in a BeOS style tab
+            """
+            nonlocal width
+            widthTitle  = len(self.str_title)
+            if widthTitle > width:
+                self.str_title = self.str_title[0:width-5] + '...'
+                widthTitle = len(self.str_title)
+            h_len       = widthTitle + self.l_padding  + self.r_padding
+            top         = ''.join(['┌'] + ['─' * h_len] + ['┐']) + '\n'
+            result      = top                       + \
+                            '│'                     + \
+                            ' ' * self.l_padding    + \
+                                  self.str_title    + \
+                            ' ' * self.r_padding    + \
+                            '│' + self.str_shadow   + '\n'
+            offset      = 2 + self.l_padding + len(self.str_title) + self.r_padding
+            return result, offset
+
+        for k,v in kwargs.items():
+            if k == 'left_padding'  :   self.l_padding   = v
+            if k == 'right_padding' :   self.r_padding   = v
+
+        msg_list    = self.str_payload.split('\n')
+        msg_list    = [ x.replace('\t', '       ') for x in msg_list]
+        l_c0        = [x.count('\x1b[0;')*7 for x in msg_list]
+        l_c1        = [x.count('\x1b[1;')*7 for x in msg_list]
+        l_nc        = [x.count('\x1b[0m')*4 for x in msg_list]
+        l_offset    = [x + y + z for x, y, z in zip(l_c0, l_c1, l_nc)]
+        msg_listNoEsc   = [(len(x) - w) for x, w in zip(msg_list, l_offset)]
+        width       = max(msg_listNoEsc)
+        h_len       = width + self.l_padding + self.r_padding
+        top_bottom  = ''.join(['+'] + ['-' * h_len] + ['+']) + '\n'
+        top         = ''.join(['┌'] + ['─' * h_len] + ['┐']) + '\n'
+        bottom      = ''.join(['└'] + ['─' * h_len] + ['┘']) + self.str_shadow + '\n'
+        botShadow   = ''.join([' '] + [self.str_shadow] * (h_len+2)) + '\n'
+
+        result      = ''
+
+        if len(self.str_title):
+            result, offset = title_draw()
+            top     = '├' + top[1:offset-1] + '┴' + top[offset:]
+
+        result     += top
+
+        for m, l in zip(msg_list, msg_listNoEsc):
+            spaces   = h_len - l
+            l_spaces = ' ' * self.l_padding
+            r_spaces = ' ' * (spaces - self.l_padding)
+            result += '│' + l_spaces + m + r_spaces + '│' + self.str_shadow +' \n'
+
+        result += bottom
+        if self.b_3D: result += botShadow
+        return result
+
+    def __repr__(self):
+        return self.str_payload
 
 class pftree(object):
     """
@@ -202,28 +311,87 @@ class pftree(object):
 
         """
 
-        str_topDir  = "."
-        l_dirs      = []
-        l_files     = []
-        b_status    = False
-        str_path    = ''
-        l_dirsHere  = []
-        l_filesHere = []
+        def nextSpinner(b_cursorToNextLine):
+            """Provide a rotating spinner to indicate activity by using a closure.
+
+            Returns:
+                inner : inner function
+            """
+            spinner = '\\|/-'
+            pos     = 0
+            def inner(b_cursorToNextLine):
+                nonlocal pos, spinner
+                if pos>=len(spinner): pos = 0
+                if not self.args['json'] and not self.args['jsonStats']:
+                    self.dp.qprint('Probing filesystem... {}'.format(spinner[pos]), end = '')
+                    if not b_cursorToNextLine:
+                        self.dp.qprint('\r', end = '', syslog = self.args['syslog'])
+                    else:
+                        self.dp.qprint('\n', end = '', syslog = self.args['syslog'])
+                pos += 1
+                return inner
+            return inner
+
+        def path_shorten(str_path, length = 80) -> str:
+            """Shorten a Path string
+
+            Returns:
+                string : a shortened path
+            """
+            if length < 0:
+                length = os.get_terminal_size().columns + length
+            if len(str_path) > length:
+                l_parts = list(pathlib.PurePath(str_path).parts)
+                l_copy  = l_parts.copy()
+                max     = len(l_parts)
+                offset  = -1
+                center  = max // 2
+                while len(str_path) > length:
+                    offset += 1
+                    l_shorten = [i % (max + 1) for i in range(  center - offset,
+                                                    center + offset + 1)]
+                    for prt in l_shorten: l_copy[prt] = '...'
+                    str_path    = str(pathlib.PurePath(*l_copy))
+            return str_path
+
+        def elements_flash(l_el, debugLevel):
+            """
+            Flash elements in the passed list at the debugLevel
+            """
+            if not self.args['json'] and not self.args['jsonStats']:
+                for el in l_el:
+                    self.dp.qprint('%s (%d)\033[K\r' % \
+                            (path_shorten(el, - len(str(len(l_el))) - 4), len(l_el)),
+                            level   = debugLevel,
+                            end     = '',
+                            syslog  = self.args['syslog'])
+
+
+        str_topDir          = "."
+        l_dirs              = []
+        l_files             = []
+        b_status            = False
+        str_path            = ''
+        l_dirsHere          = []
+        l_filesHere         = []
+        b_cursorToNextLine  = False
 
         for k, v in kwargs.items():
             if k == 'root':  str_topDir  = v
 
-        # for root, dirs, files in os.walk(str_topDir, followlinks = self.b_followLinks):
+        if int(self.args['verbosity']) >= 2:
+            b_cursorToNextLine = True
+        spinner             = nextSpinner(b_cursorToNextLine)
         for root, dirs, files in pftree.walklevel(str_topDir,
                                                   self.maxdepth,
                                                   followlinks = self.b_followLinks):
             b_status = True
+            spinner(b_cursorToNextLine)
             str_path = root.split(os.sep)
             if dirs:
                 l_dirsHere = [root + '/' + x for x in dirs]
                 l_dirs.append(l_dirsHere)
-                self.dp.qprint('Appending dirs to search space:\n', level = 3)
-                self.dp.qprint("\n" + self.pp.pformat(l_dirsHere),  level = 3)
+                elements_flash(l_dirsHere, 2)
             if files:
                 l_filesHere = [root + '/' + y for y in files]
                 if len(self.str_inputFile):
@@ -234,8 +402,10 @@ class pftree(object):
                         l_filesHere = []
                 if l_filesHere:
                     l_files.append(l_filesHere)
-                self.dp.qprint('Appending files to search space:\n', level = 3)
-                self.dp.qprint("\n" + self.pp.pformat(l_filesHere),  level = 3)
+                    elements_flash(l_filesHere, 3)
+            self.dp.qprint("\033[A" * 1, end = '', syslog = self.args['syslog'], level =2)
+        if not self.args['json'] and not self.args['jsonStats']:
+            self.dp.qprint('Probing complete!              ', level = 1)
         return {
             'status':   b_status,
             'l_dir':    l_dirs,
@@ -253,16 +423,25 @@ class pftree(object):
         l_files                 = []
         d_constructCallback     = {}
         fn_constructCallback    = None
+        d_probe                 = {}
+        l_range                 = []
+
         for k, v in kwargs.items():
             if k == 'l_files':           l_files                 = v
             if k == 'constructCallback': fn_constructCallback    = v
+            if k == 'd_probe':           d_probe                 = v
 
+        if d_probe: l_files     = d_probe['l_files']
         index   = 1
         total   = len(l_files)
-        for l_series in l_files:
+        if int(self.args['verbosity']) and not self.args['json'] and not self.args['jsonStats']:
+            l_range     = tqdm(l_files, desc = ' Constructing tree')
+        else:
+            l_range     = l_files
+        for l_series in l_range:
             str_path    = os.path.dirname(l_series[0])
             l_series    = [ os.path.basename(i) for i in l_series]
-            self.simpleProgress_show(index, total)
+            # self.simpleProgress_show(index, total)
             self.d_inputTree[str_path]  = l_series
             if fn_constructCallback:
                 kwargs['path']          = str_path
@@ -273,8 +452,121 @@ class pftree(object):
         return {
             'status':                   True,
             'd_constructCallback':      d_constructCallback,
-            'totalNumberOfAllSeries':   index
+            'totalNumberOfAllSeries':   index,
+            'd_probe':                  d_probe
         }
+
+    def FS_filter(self, at_data, *args, **kwargs) -> dict:
+        """
+        Apply a filter to the string space of file and directory
+        representations.
+
+        The purpose of this method is to reduce the original space of
+
+                        "<path>": [<"filesToProcess">]
+
+        to only those paths and files that are relevant to the operation being
+        performed. Two filters are understood, a `fileFilter` that filters
+        filenames that match any of the passed search substrings from the CLI
+        `--fileFilter`, and a`dirFilter` that filters directories containing
+        any of the passed `--dirFilter` substrings.
+
+        The effect of these filters is hierarchical. First, the `fileFilter`
+        is applied across the space of files for a given directory path. By
+        default, the files are subject to a logical OR operation across the
+        comma separated filter argument. Thus, a `fileFilter` of "png,jpg,body"
+        will filter all files that have the substrings of "png" OR "jpg" OR
+        "body" in their filenames. This logical operation can be set with
+        "--fileFilterLogic AND" to use AND instead. In such a case, a filter
+        of "aparc,mgz" will filter all files that contain "aparc" AND "mgz"
+        in their filenames. If no `fileFilter` has been set, that all files
+        are passed through.
+
+        Next, if a `dirFilter` has been specified, the current string path
+        corresponding to the filenames being filtered is considered. A logical
+        OR (default) is applied over the space of dir filters and the path
+        (and files) are passed through if the dirname contains the filter
+        string. Set this operation to AND with `--dirFilterLogic AND`.
+
+        Regardless of the constituent file/dir filter logic operation, the
+        relationship between the fileList and dirList is always AND.
+
+        Thus, a `dirFilter` of "100307,100556" and a fileFilter of "png,jpg"
+        will reduce the space of files to process to ONLY files that have
+        an ancestor directory of "100307" OR "100556" AND that contain either
+        the string "png" OR "jpg" in their file names.
+        """
+
+        b_status    : bool      = True
+        l_file      : list      = []
+        l_dirHits   : list      = []
+        l_dir       : list      = []
+        str_path    : str       = at_data[0]
+        al_file     : list      = at_data[1]
+
+        if len(self.args['fileFilter']):
+            if self.args['fileFilterLogic'].upper() == 'OR':
+                al_file     = [x                                            \
+                            for y in self.args['fileFilter'].split(',')     \
+                                for x in al_file if y in x]
+            else:
+                for y in self.args['fileFilter'].split(','):
+                    al_file = [x for x in al_file if y in x]
+
+        if len(self.args['dirFilter']):
+            l_dirHits   = [str_path                                         \
+                            for y in self.args['dirFilter'].split(',')      \
+                                if y in str_path]
+            if self.args['dirFilterLogic'].upper()  == 'AND':
+                for y in self.args['dirFilter'].split(','):
+                    l_dirHits = [x for x in l_dirHits if y in x]
+            if len(l_dirHits):
+                # Remove any duplicates in the l_dirHits: duplicates can occur
+                # if the tokens in the filter expression map more than once
+                # into the leaf node in the <str_path>, as a path that is
+                #
+                #               /some/dir/in/the/space/1234567
+                #
+                # and a search filter on the dirspace of "123,567"
+                [l_dir.append(x) for x in l_dirHits if x not in l_dir]
+            else:
+                # If no dir hits for this dir, then we zero out the
+                # file filter
+                al_file = []
+
+        if len(al_file):
+            al_file.sort()
+            l_file      = al_file
+            b_status    = True
+        else:
+            self.dp.qprint( "No valid files to analyze found in path %s!" %
+                            str_path, comms = 'warn', level = 5)
+            l_file      = None
+            b_status    = False
+        return {
+            'status':   b_status,
+            'l_file':   l_file
+        }
+
+    def filterFileHitList(self) -> dict:
+        """
+        Entry point for filtering the file filter list
+        at each directory node.
+        """
+        d_filterFileHitList = self.tree_process(
+                        inputReadCallback       = None,
+                        analysisCallback        = self.FS_filter,
+                        outputWriteCallback     = None,
+                        applyResultsTo          = 'inputTree',
+                        applyKey                = 'l_file',
+                        persistAnalysisResults  = True
+        )
+        # We also need to filter the self.d_inputTreeCallBack to only
+        # contain the hits now in the self.d_inputTree
+        self.d_inputTreeCallback = {k :self.d_inputTreeCallback[k]
+                                        for k in self.d_inputTree}
+
+        return d_filterFileHitList
 
     @staticmethod
     def sizeof_fmt(num, suffix='B'):
@@ -414,6 +706,7 @@ class pftree(object):
         filesRead                   = 0
         filesAnalyzed               = 0
         filesSaved                  = 0
+        str_desc                    = ""
 
         def thread_batch(l_threadFunc, outerLoop, innerLoop, offset):
             """
@@ -448,10 +741,10 @@ class pftree(object):
             nonlocal    d_tree
             nonlocal    fn_inputReadCallback
 
-            self.simpleProgress_show(index, total, '%s:%s' %
-                ('%25s' %threading.currentThread().getName(),
-                 '%25s' % fn_inputReadCallback.__name__)
-            )
+            # self.simpleProgress_show(index, total, '%s:%s' %
+            #     ('%25s' %threading.currentThread().getName(),
+            #      '%25s' % fn_inputReadCallback.__name__)
+            # )
 
             d_read = fn_inputReadCallback(
                 ('%s/%s' % (self.str_inputDir, path), data), **kwargs
@@ -475,10 +768,10 @@ class pftree(object):
             nonlocal    d_tree
             nonlocal    fn_analysisCallback
 
-            self.simpleProgress_show(index, total, '%s:%s' %
-                ('%25s' % threading.currentThread().getName(),
-                 '%25s' % fn_analysisCallback.__name__)
-            )
+            # self.simpleProgress_show(index, total, '%s:%s' %
+            #     ('%25s' % threading.currentThread().getName(),
+            #      '%25s' % fn_analysisCallback.__name__)
+            # )
 
             d_analysis          = fn_analysisCallback(
                 ('%s/%s' % (self.str_inputDir, path), d_tree[path]), **kwargs
@@ -538,10 +831,10 @@ class pftree(object):
             nonlocal    fn_analysisCallback
             nonlocal    b_persistAnalysisResults
 
-            self.simpleProgress_show(index, total, '%s:%s' %
-                ('%25s' % threading.currentThread().getName(),
-                 '%25s' % fn_outputWriteCallback.__name__)
-            )
+            # self.simpleProgress_show(index, total, '%s:%s' %
+            #     ('%25s' % threading.currentThread().getName(),
+            #      '%25s' % fn_outputWriteCallback.__name__)
+            # )
 
             if len(self.str_outputLeafDir):
                 (dirname, basename) = os.path.split(path)
@@ -618,12 +911,13 @@ class pftree(object):
             nonlocal dret_inputSet
             nonlocal dret_analyze
             nonlocal dret_outputSet
+            nonlocal str_desc
 
             b_analyzeStatusHist:    bool = False
             b_inputStatusHist:      bool = False
             b_outputStatusHist:     bool = False
 
-            for path, data in self.d_inputTree.items():
+            for path, data in tqdm(self.d_inputTree.items(), desc = str_desc):
                 dret_inputSet   = {}
                 dret_analyze    = {}
                 dret_outputSet  = {}
@@ -676,6 +970,7 @@ class pftree(object):
             nonlocal dret_inputSet
             nonlocal dret_analyze
             nonlocal dret_outputSet
+            nonlocal str_desc
 
             def thread_createOnFunction(path, data, str_namePrefix, fn_thread):
                 """
@@ -714,7 +1009,8 @@ class pftree(object):
             # Read
             if fn_inputReadCallback:
                 index = 1
-                for path, data in self.d_inputTree.items():
+                for path, data in tqdm( self.d_inputTree.items(),
+                                        desc = ' Reading      tree'):
                     dret_inputSet   = inputSet_read(path, data)
                     # filesRead       += dret_inputSet['filesRead']
                     index += 1
@@ -723,7 +1019,8 @@ class pftree(object):
             if fn_analysisCallback:
                 index               = 1
                 l_threadAnalysis    = []
-                for path, data in self.d_inputTree.items():
+                for path, data in tqdm( self.d_inputTree.items(),
+                                        desc = ' Analyzing    tree'):
                     l_threadAnalysis.append(thread_createOnFunction(
                                                     path, data,
                                                     'analysisThread',
@@ -739,7 +1036,8 @@ class pftree(object):
             # Write
             if fn_outputWriteCallback:
                 index   = 1
-                for path, data in self.d_inputTree.items():
+                for path, data in tqdm( self.d_inputTree.items(),
+                                        ' Saving  new  tree'):
                     dret_outputSet  = outputSet_write(path, d_tree[path])
                     # filesSaved      += dret_outputSet['filesSaved']
                     index += 1
@@ -751,6 +1049,12 @@ class pftree(object):
             if k == 'applyResultsTo':           str_applyResultsTo          = v
             if k == 'applyKey':                 str_applyKey                = v
             if k == 'persistAnalysisResults':   b_persistAnalysisResults    = v
+
+        if fn_inputReadCallback:    str_desc = ' Reading      tree'
+        if fn_analysisCallback:     str_desc = ' Analyzing    tree'
+        if fn_outputWriteCallback:  str_desc = ' Saving  new  tree'
+        if fn_inputReadCallback and fn_analysisCallback and fn_outputWriteCallback:
+            str_desc =                         'Read/Analyze/Write'
 
         if str_applyResultsTo == 'inputTree':
             d_tree          = self.d_inputTree
@@ -801,6 +1105,14 @@ class pftree(object):
             'status':   True
         }
 
+    @staticmethod
+    def delete_last_line():
+        "Use this function to delete the last line in the STDOUT"
+        #cursor up one line
+        sys.stdout.write('\x1b[1A')
+        #delete last line
+        sys.stdout.write('\x1b[2K')
+
     def stats_compute(self, *args, **kwargs):
         """
         Simply loop over the internal dictionary and
@@ -816,18 +1128,21 @@ class pftree(object):
         for k, v in sorted(self.d_inputTreeCallback.items(),
                             key         = lambda kv: (kv[1]['diskUsage_raw']),
                             reverse     = self.b_statsReverse):
-            str_report  = "files: %5d; raw size: %12d; human size: %8s; %s" % (\
-                    len(self.d_inputTree[k]),
-                    self.d_inputTreeCallback[k]['diskUsage_raw'],
-                    self.d_inputTreeCallback[k]['diskUsage_human'],
-                    k)
+            try:
+                str_report  = "files: %5d│ raw_size: %12d│ human_size: %8s│ dir: %s" % (\
+                        len(self.d_inputTree[k]),
+                        self.d_inputTreeCallback[k]['diskUsage_raw'],
+                        self.d_inputTreeCallback[k]['diskUsage_human'],
+                        k)
+            except:
+                pass
             d_report = {
                 'files':            len(self.d_inputTree[k]),
                 'diskUsage_raw':    self.d_inputTreeCallback[k]['diskUsage_raw'],
                 'diskUsage_human':  self.d_inputTreeCallback[k]['diskUsage_human'],
                 'path':             k
             }
-            self.dp.qprint(str_report, level = 1)
+            self.dp.qprint(str_report, level =2)
             l_stats.append(d_report)
             totalElements   += len(v)
             totalKeys       += 1
@@ -963,75 +1278,163 @@ class pftree(object):
         )
         return d_test
 
+    def env_check(self):
+        """
+        Simple environment check routine.
+        """
+        b_status    :   bool    = True
+        str_error   :   str     = "no error"
+        if not os.path.exists(self.str_inputDir):
+            b_status    = False
+            if not self.args['json'] and not self.args['jsonStats']:
+                error.warn(self, 'inputDirFail', exitToOS = True, drawBox = True)
+            str_error   = 'error captured while accessing input directory'
+        return {
+            'status'    : b_status,
+            'error'     : str_error
+        }
+
+    @staticmethod
+    def unpack(d : dict, *keys):
+        return tuple(d[k] for k in keys)
+
     def run(self, *args, **kwargs):
         """
         Probe the input tree and print.
         """
-        b_status        = True
-        d_probe         = {}
-        d_tree          = {}
-        d_stats         = {}
-        str_error       = ''
-        b_timerStart    = False
-        d_test          = {}
 
-        for k, v in kwargs.items():
-            if k == 'timerStart':   b_timerStart    = bool(v)
+        def filters_show():
+            """
+            Show the filters used
+            """
+            log         = slog()
+            log.title_set('Filters applied')
+            if self.args['table3D']: log.render3D()
+            log('Input directory:       %s\n' % self.str_inputDir)
+            log('Output directory:      %s\n' % self.str_outputDir)
+            for filter in ['file', 'dir']:
+                log('%sFilter:            ' % filter)
+                sl_ffilter  = ['%s %s' % (x, self.args['%sFilterLogic' % filter]) \
+                                for x in self.args['%sFilter' % filter].split(',')]
+                str_ffilter = ' '.join(sl_ffilter)
+                sl_ffilter  = str_ffilter.split()
+                str_ffilter = ' '.join(sl_ffilter[:-1])
+                log('%s\n ' % str_ffilter)
+            return log
 
-        if b_timerStart:
-            other.tic()
+        def stats_process():
+            """
+            Call the dir/files stats processing
+            """
+            nonlocal d_stats, b_status
+            log         = slog()
+            d_stats     = self.stats_compute()
+            slog_filter = filters_show()
+            log.title_set('Size statistics')
+            if self.args['table3D']: log.render3D()
+            log('Total size (raw):        %d\n' % d_stats['totalSize']      )
+            log('Total size (friendly):   {:,}\n'.format(d_stats['totalSize']))
+            log('Total size (human):      %s\n' % d_stats['totalSize_human'])
+            log('Total files:             %s\n' % d_stats['files']          )
+            log('Total dirs:              %s' % d_stats['dirs']           )
+            b_status    = b_status and d_stats['status']
+            return {
+                'status':       b_status,
+                'filterLog':    slog_filter,
+                'bodyLog':      log
+            }
 
-        if not os.path.exists(self.str_inputDir):
-            b_status    = False
-            self.dp.qprint(
-                    "input directory either not specified or does not exist.",
-                    comms = 'error'
-            )
-            error.warn(self, 'inputDirFail', exitToOS = True, drawBox = True)
-            str_error   = 'error captured while accessing input directory'
-
-        if b_status:
-            str_origDir = os.getcwd()
+        def tree_resolveRoot():
+            """
+            Set the 'rootDir' for the tree structure. This is either a
+            '.' indicating a relative tree, or the inputDir
+            """
+            nonlocal str_rootDir
             if self.b_relativeDir:
                 os.chdir(self.str_inputDir)
                 str_rootDir     = '.'
             else:
                 str_rootDir     = self.str_inputDir
+            return str_rootDir
 
-            d_probe     = self.tree_probe(
-                root    = str_rootDir
-            )
-            b_status    = b_status and d_probe['status']
-            d_tree      = self.tree_construct(
-                l_files             = d_probe['l_files'],
-                constructCallback   = self.dirsize_get
-            )
-            b_status    = b_status and d_tree['status']
+        def timer_startIfNeeded():
+            """
+            Determine if the timer should start
+            """
+            nonlocal b_timerStart
+            for k, v in kwargs.items():
+                if k == 'timerStart':   b_timerStart    = bool(v)
+            if b_timerStart:
+                other.tic()
 
+        def postProcess_check() -> dict:
+            """
+            Once a tree has been constructed, run some in-line
+            post processing operations if desired.
+            """
+            nonlocal d_test, b_status, d_filter, d_stats
+
+            if len(self.args['fileFilter']) or len(self.args['dirFilter']):
+                d_filter    = self.filterFileHitList()
+                b_status    = d_filter['status']
             if self.b_test:
                 d_test      = self.test_run(*args, **kwargs)
                 b_status    = b_status and d_test['status']
-            else:
-                if self.b_stats or self.b_statsReverse:
-                    d_stats     = self.stats_compute()
-                    self.dp.qprint('Total size (raw):   %d' % d_stats['totalSize'],         level = 1)
-                    self.dp.qprint('Total size (human): %s' % d_stats['totalSize_human'],   level = 1)
-                    self.dp.qprint('Total files:        %s' % d_stats['files'],             level = 1)
-                    self.dp.qprint('Total dirs:         %s' % d_stats['dirs'],              level = 1)
-                    b_status    = b_status and d_stats['status']
+            if self.b_stats or self.b_statsReverse:
+                d_stats     = stats_process()
+                b_status    = b_status and d_stats['status']
+                # pudb.set_trace()
+                if not self.args['json'] and not self.args['jsonStats']:
+                    print(d_stats['filterLog'].border_draw())
+                    print(d_stats['bodyLog'].border_draw())
+                else:
+                    d_stats['filterLog']    = d_stats['filterLog'].json_dump()
+                    d_stats['bodyLog']      = d_stats['bodyLog'].json_dump()
+
+            return {
+                'status':   b_status,
+                'filter':   d_filter,
+                'test':     d_test,
+                'stats':    d_stats
+            }
+
+        b_status        = True
+        d_probe         = {}
+        d_tree          = {}
+        d_stats         = {}
+        d_post          = {}
+        str_error       = ''
+        b_timerStart    = False
+        d_test          = {}
+        d_env           = {}
+        d_filter        = {}
+        str_rootDir     = ''
+
+        timer_startIfNeeded()
+        b_status, str_error = self.unpack(self.env_check(), 'status', 'error')
+
+        if b_status:
+            str_origDir = os.getcwd()
+            d_tree      = self.tree_construct(
+                d_probe             = self.tree_probe(root= tree_resolveRoot()),
+                constructCallback   = self.dirsize_get
+            )
+            b_status    = d_tree['status']
+
+            d_post      = postProcess_check()
 
             if self.b_jsonStats:
-                print(json.dumps(d_stats, indent = 4, sort_keys = True))
+                print(json.dumps(d_post['stats'], indent = 4, sort_keys = True))
 
             if self.b_relativeDir:
                 os.chdir(str_origDir)
 
         d_ret = {
             'status':       b_status,
-            'd_probe':      d_probe,
             'd_tree':       d_tree,
             'd_stats':      d_stats,
             'd_test':       d_test,
+            'd_post':       d_post,
             'str_error':    str_error,
             'runTime':      other.toc()
         }
