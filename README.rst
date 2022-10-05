@@ -22,13 +22,11 @@ Quick Overview
 Overview
 --------
 
-``pftree`` recursively walks down an input directory tree and creates a dictionary representation of the path structure. Each tree "key" has a list of files in that corresponding directory in the filesystem.
-
-``pftree`` in and of itself is does not really do any work. It is a class that provides the internals for representing file system hierarchies in dictionary form.
-
-As a convenience, however, the ``--stats`` or ``--statsReverse`` do provide a useful analog for sorted directory usage down a file system tree.
-
 Given an ``<inputDir>``, ``pftree`` will perform a recursive walk down the directory tree. For each directory that contains files, ``pftree`` will create a dictionary key of the directory path, and will store a list of filenames for the key value.
+
+``pftree`` in and of itself is does not really do any work. It is a class that provides the internals for representing file system hierarchies in dictionary form. As a convenience, however, the ``--stats`` or ``--statsReverse`` do provide a useful analog for sorted directory usage down a file system tree.
+
+Several simple file and directory name filters can be applied which can facilitate the targetting of very specific elements in a file system tree.
 
 The core the of the class is a ``tree_analysisApply()`` method, that accepts various kwargs. When called, this method will loop over the dictionary, and for each key (i.e. 'path') will execute a callback method. This callback is passed the dictionary value at that key (i.e. usually just the list of files) as well as all the kwargs passed to ``tree_analysisApply()``.
 
@@ -41,6 +39,7 @@ Dependencies
 The following dependencies are installed on your host system/python3 virtual env (they will also be automatically installed if pulled from pypi):
 
 -  ``pfmisc`` (various misc modules and classes for the pf* family of objects)
+-  ``tqdm`` (console prettiness for progress bars)
 
 Using ``PyPI``
 ~~~~~~~~~~~~~~
@@ -62,6 +61,11 @@ Command line arguments
         Input directory to examine. The downstream nested structure of this
         directory is examined and recreated in the <outputDir>.
 
+        [--outputDir <outputDir>]
+        The directory to contain a tree structure identical to the input
+        tree structure, and which contains all output files from the
+        per-input-dir processing.
+
         [--maxdepth <dirDepth>]
         The maximum depth to descend relative to the <inputDir>. Note, that
         this counts from zero! Default of '-1' implies transverse the entire
@@ -78,10 +82,26 @@ Command line arguments
         specified, then do not perform a directory walk, but target this
         specific file.
 
-        [--outputDir <outputDir>]
-        The directory to contain a tree structure identical to the input
-        tree structure, and which contains all output files from the
-        per-input-dir processing.
+        [--fileFilter <someFilter1,someFilter2,...>]
+        An optional comma-delimated string to filter out files of interest
+        from the <inputDir> tree. Each token in the expression is applied in
+        turn over the space of files in a directory location according to a
+        logical operation, and only files that contain this token string in
+        their filename are preserved.
+
+        [--filteFilterLogic AND|OR]
+        The logical operator to apply across the fileFilter operation. Default
+        is OR.
+
+        [--dirFilter <someFilter1,someFilter2,...>]
+        An additional filter that will further limit any files to process to
+        only those files that exist in leaf directory nodes that have some
+        substring of each of the comma separated <someFilter> in their
+        directory name.
+
+        [--dirFilterLogic AND|OR]
+        The logical operator to apply across the dirFilter operation. Default
+        is OR.
 
         [--outputLeafDir <outputLeafDirFormat>]
         If specified, will apply the <outputLeafDirFormat> to the output
@@ -136,6 +156,10 @@ Command line arguments
         If specified, return some stats to caller -- summary list ordered
         by directory size (--statsReverse does a reverse sort).
 
+        [--3D]
+        A "toy" flag that simply shows the final stats report with an ASCII
+        3D effect.
+
         [--jsonStats]
         If specified, do a JSON dump of the stats.
 
@@ -175,9 +199,12 @@ Run on a target tree and output some detail and stats
 
         pftree          --inputDir /var/www/html                                \
                         --printElapsedTime                                      \
-                        --stats --verbosity 0 --json
+                        --stats --verbosity 0
 
-which will output only at script conclusion and will log a JSON formatted string.
+Increasing the ``verbosity`` will produce increasing output on the console. Passing
+a ``--json`` will return a highly detailed JSON payload with considerable information.
+Passing a ``--jsonStats`` will only return a summary of the final stats on the
+filesystem probed. Note that the ``--verbosity`` flag is ignored if ``--json`` or ``--jsonStats`` are also present.
 
 test
 ~~~~
