@@ -139,6 +139,9 @@ Command line arguments
         [--followLinks]
         If specified, follow symbolic links.
 
+        [--overwrite]
+        If specified, allow for overwriting of existing files
+
         [--man]
         Show full help.
 
