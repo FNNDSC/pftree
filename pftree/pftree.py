@@ -282,6 +282,29 @@ class pftree(object):
 
         if not len(self.str_inputDir): self.str_inputDir = '.'
 
+    def toConsole(self) -> bool:
+        """A simple check on CLI flag patterning to resolve whether or not
+        to actually generate console output. This output needs to return
+        false if any json related flag has been indicated since any non-
+        json "noise" could corrupt any app that wants to only consume
+        json data from this module.
+
+        Returns:
+            bool: True if OK to print to console
+        """
+
+        b_json      :   bool    = True
+        b_stats     :   bool    = False
+        if 'jsonStats' not in self.args.keys():
+            b_stats = True
+        else:
+            b_stats = self.args['jsonStats']
+        if 'json' not in self.args.keys():
+            b_json  = True
+        else:
+            b_json  = self.args['json']
+        return not b_json and not b_stats
+
     def simpleProgress_show(self, index, total, *args):
         str_pretext = ""
         if len(args):
@@ -345,7 +368,8 @@ class pftree(object):
             def inner(b_cursorToNextLine):
                 nonlocal pos, spinner
                 if pos>=len(spinner): pos = 0
-                if not self.args['json'] and not self.args['jsonStats']:
+                if self.toConsole():
+                # if not self.args['json'] and not self.args['jsonStats']:
                     self.dp.qprint('Probing filesystem... {}'.format(spinner[pos]), end = '')
                     if not b_cursorToNextLine:
                         self.dp.qprint('\r', end = '', syslog = self.args['syslog'])
@@ -381,7 +405,8 @@ class pftree(object):
             """
             Flash elements in the passed list at the debugLevel
             """
-            if not self.args['json'] and not self.args['jsonStats']:
+            if self.toConsole():
+            # if not self.args['json'] and not self.args['jsonStats']:
                 for el in l_el:
                     self.dp.qprint('%s (%d)\033[K\r' % \
                             (path_shorten(el, - len(str(len(l_el))) - 4), len(l_el)),
@@ -427,7 +452,8 @@ class pftree(object):
                     l_files.append(l_filesHere)
                     elements_flash(l_filesHere, 3)
             self.dp.qprint("\033[A" * 1, end = '', syslog = self.args['syslog'], level =2)
-        if not self.args['json'] and not self.args['jsonStats']:
+        if self.toConsole():
+        # if not self.args['json'] and not self.args['jsonStats']:
             self.dp.qprint('Probing complete!              ', level = 1)
         return {
             'status':   b_status,
@@ -457,7 +483,7 @@ class pftree(object):
         if d_probe: l_files     = d_probe['l_files']
         index   = 1
         total   = len(l_files)
-        if int(self.args['verbosity']) and not self.args['json'] and not self.args['jsonStats']:
+        if int(self.args['verbosity']) and self.toConsole():
             l_range     = tqdm(l_files, desc = ' Constructing tree')
         else:
             l_range     = l_files
@@ -1309,7 +1335,8 @@ class pftree(object):
         str_error   :   str     = "no error"
         if not os.path.exists(self.str_inputDir):
             b_status    = False
-            if not self.args['json'] and not self.args['jsonStats']:
+            if self.toConsole():
+            # if not self.args['json'] and not self.args['jsonStats']:
                 error.warn(self, 'inputDirFail', exitToOS = True, drawBox = True)
             str_error   = 'error captured while accessing input directory'
         return {
@@ -1407,7 +1434,8 @@ class pftree(object):
                 d_stats     = stats_process()
                 b_status    = b_status and d_stats['status']
                 # pudb.set_trace()
-                if not self.args['json'] and not self.args['jsonStats']:
+                if self.toConsole():
+                # if not self.args['json'] and not self.args['jsonStats']:
                     print(d_stats['filterLog'].border_draw())
                     print(d_stats['bodyLog'].border_draw())
                 else:
