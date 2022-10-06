@@ -464,6 +464,9 @@ def main(argv = None):
         print("Name:    %s\nVersion: %s" % (__pkg.name, __version__))
         return 1
 
+    args.str_version    = __version__
+    args.str_desc       = synopsis(True)
+
     try:
         pf_tree             = pftree.pftree(vars(args))
     except:
