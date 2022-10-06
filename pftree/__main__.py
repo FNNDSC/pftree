@@ -413,6 +413,11 @@ parserCore.add_argument("--dirFilterLogic",
                     help    = "the logic to apply across the dir filter",
                     dest    = 'dirFilterLogic',
                     default = 'OR')
+parserCore.add_argument("--syslog",
+                    help    = "show outputs in syslog style",
+                    dest    = 'syslog',
+                    action  = 'store_true',
+                    default = False)
 
 parserSelf.add_argument("--stats",
                     help    = "show some quick stats",
@@ -427,11 +432,6 @@ parserSelf.add_argument("--statsReverse",
 parserSelf.add_argument("--3D",
                     help    = "show table in ASCII 3D",
                     dest    = 'table3D',
-                    action  = 'store_true',
-                    default = False)
-parserSelf.add_argument("--syslog",
-                    help    = "show outputs in syslog style",
-                    dest    = 'syslog',
                     action  = 'store_true',
                     default = False)
 parserSelf.add_argument("--jsonStats",
