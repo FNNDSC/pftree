@@ -218,6 +218,33 @@ class pftree(object):
         self.pp                         = pprint.PrettyPrinter(indent=4)
         self.verbosityLevel             = 1
 
+    def checkFor_tests(self) -> bool:
+        """Checks the internal self.str_sleepLength value
+        that is used to trigger tests. The CLI `--test` flag
+        might be set by a descendent or sibling module and
+        hence cause issues if interpreted by this class.
+
+        This method attempts some very rudimentary checks on
+        the `--test` flag (and hence the self.str_sleepLength).
+
+        Returns:
+            bool: tests checked
+        """
+        b_status    : bool  = False
+        if isinstance(self.str_sleepLength, str):
+            if len(self.str_sleepLength):
+                b_status    = True
+                l_test  = self.str_sleepLength.split(':')
+                self.str_sleepLength    = l_test[0]
+                if len(l_test) == 2:
+                    self.testType   = int(l_test[1])
+                try:
+                    self.f_sleepLength      = float(self.str_sleepLength)
+                    self.b_test             = True
+                except:
+                    self.b_test             = False
+        return b_status
+
     def __init__(self, *args, **kwargs):
 
         # pudb.set_trace()
@@ -242,16 +269,7 @@ class pftree(object):
             if key == 'test':           self.str_sleepLength    = value
             if key == 'outputLeafDir':  self.str_outputLeafDir  = value
 
-        if len(self.str_sleepLength):
-            l_test  = self.str_sleepLength.split(':')
-            self.str_sleepLength    = l_test[0]
-            if len(l_test) == 2:
-                self.testType   = int(l_test[1])
-            try:
-                self.f_sleepLength      = float(self.str_sleepLength)
-                self.b_test             = True
-            except:
-                self.b_test             = False
+        self.checkFor_tests()
 
         # Set logging
         self.dp                        = pfmisc.debug(
