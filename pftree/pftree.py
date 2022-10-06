@@ -179,7 +179,6 @@ class pftree(object):
         #
         # Object desc block
         #
-        self.str_desc                   = self.args['str_desc']
         self.__name__                   = __name__
         self.str_version                = __version__
 
@@ -250,6 +249,7 @@ class pftree(object):
         # pudb.set_trace()
         self.declare_selfvars()
         self.args                       = args[0]
+        self.str_desc                   = self.args['str_desc']
         if len(self.args):
             kwargs  = {**self.args, **kwargs}
 
