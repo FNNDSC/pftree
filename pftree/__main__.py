@@ -88,16 +88,23 @@ package_CLIcore = """
 """
 
 package_CLIself     = '''
-        [--stats | --statsReverse]                                              \\
+        [--stats | --statsReverse | --du | --duf]                               \\
         [--3D]                                                                  \\
         [--jsonStats]                                                           \\
         [--syslog]                                                              \\
         [--test <analysisDelayLength[:<type>]>]                                 \\'''
 
 package_argSynopsisSelf = """
-        [--stats | --statsReverse]
+        [--stats | --statsReverse | --du | --duf]
         If specified, return some stats to caller -- summary list ordered
         by directory size (--statsReverse does a reverse sort).
+
+        The --du flag will present results in a manner generally similar to
+        the GNU `du -ksh <inputDir>/*`. This flag will force an increased
+        verbosity level to allow console output.
+
+        Using the --duf (du, fast), will suppress all printing intermediary
+        results to console, resulting in a much faster set of operations.
 
         [--3D]
         A "toy" flag that simply shows the final stats report with an ASCII
@@ -296,7 +303,9 @@ def synopsis(ab_shortOnly = False):
                         --stats --verbosity 0 --json
 
     which will output only at script conclusion and will log a JSON formatted
-    string.
+    string. Similarly
+
+        pftree          --du --inputDir /var/www/html
 
     * Run a test down a target tree:
 
@@ -427,6 +436,16 @@ parserSelf.add_argument("--stats",
 parserSelf.add_argument("--statsReverse",
                     help    = "show some quick stats (reverse order)",
                     dest    = 'statsReverse',
+                    action  = 'store_true',
+                    default = False)
+parserSelf.add_argument("--du",
+                    help    = "show disk usage in the GNU du style",
+                    dest    = 'du',
+                    action  = 'store_true',
+                    default = False)
+parserSelf.add_argument("--duf",
+                    help    = "show disk usage in the GNU du style (no console updating)",
+                    dest    = 'duf',
                     action  = 'store_true',
                     default = False)
 parserSelf.add_argument("--3D",

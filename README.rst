@@ -155,9 +155,16 @@ Command line arguments
         debugging info, assuming that debug messages in the code have been
         tagged with a level.
 
-        [--stats | --statsReverse]
+        [--stats | --statsReverse | --du | --duf]
         If specified, return some stats to caller -- summary list ordered
         by directory size (--statsReverse does a reverse sort).
+
+        The --du flag will present results in a manner generally similar to
+        the GNU `du -ksh <inputDir>/*`. This flag will force an increased
+        verbosity level to allow console output.
+
+        Using the --duf (du, fast), will suppress all printing intermediary
+        results to console, resulting in a much faster set of operations.
 
         [--3D]
         A "toy" flag that simply shows the final stats report with an ASCII
@@ -208,6 +215,12 @@ Increasing the ``verbosity`` will produce increasing output on the console. Pass
 a ``--json`` will return a highly detailed JSON payload with considerable information.
 Passing a ``--jsonStats`` will only return a summary of the final stats on the
 filesystem probed. Note that the ``--verbosity`` flag is ignored if ``--json`` or ``--jsonStats`` are also present.
+
+.. code:: bash
+
+    pftree          --duf --inputDir /var/www/html
+
+Simpler CLI for a less "progress displaying" but faster response.
 
 test
 ~~~~

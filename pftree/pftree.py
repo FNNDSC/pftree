@@ -216,6 +216,7 @@ class pftree(object):
         self.tic_start                  = 0.0
         self.pp                         = pprint.PrettyPrinter(indent=4)
         self.verbosityLevel             = 1
+        self.debugLevel                 = 0
 
     def checkFor_tests(self) -> bool:
         """Checks the internal self.str_sleepLength value
@@ -272,6 +273,12 @@ class pftree(object):
         self.checkFor_tests()
 
         # Set logging
+        if self.args['du']:
+            self.verbosityLevel = 2
+            self.debugLevel     = 2
+        if self.args['duf']:
+            self.verbosityLevel = 0
+            self.debugLevel     = 0
         self.dp                        = pfmisc.debug(
                                             verbosity   = self.verbosityLevel,
                                             within      = self.__name__,
@@ -289,21 +296,23 @@ class pftree(object):
         json "noise" could corrupt any app that wants to only consume
         json data from this module.
 
+        Essentially, the method will return True, unless either a
+        --json or --jsonStats has been specified
+
         Returns:
             bool: True if OK to print to console
         """
 
-        b_json      :   bool    = True
-        b_stats     :   bool    = False
-        if 'jsonStats' not in self.args.keys():
-            b_stats = True
+        b_toConsole :   bool    = True
+
+        if self.verbosityLevel:
+            for noConsole in ['jsonStats', 'json']:
+                if noConsole in self.args.keys():
+                    b_toConsole     = b_toConsole and not self.args[noConsole]
         else:
-            b_stats = self.args['jsonStats']
-        if 'json' not in self.args.keys():
-            b_json  = True
-        else:
-            b_json  = self.args['json']
-        return not b_json and not b_stats
+            b_toConsole = False
+
+        return b_toConsole
 
     def simpleProgress_show(self, index, total, *args):
         str_pretext = ""
@@ -369,7 +378,6 @@ class pftree(object):
                 nonlocal pos, spinner
                 if pos>=len(spinner): pos = 0
                 if self.toConsole():
-                # if not self.args['json'] and not self.args['jsonStats']:
                     self.dp.qprint('Probing filesystem... {}'.format(spinner[pos]), end = '')
                     if not b_cursorToNextLine:
                         self.dp.qprint('\r', end = '', syslog = self.args['syslog'])
@@ -406,7 +414,6 @@ class pftree(object):
             Flash elements in the passed list at the debugLevel
             """
             if self.toConsole():
-            # if not self.args['json'] and not self.args['jsonStats']:
                 for el in l_el:
                     self.dp.qprint('%s (%d)\033[K\r' % \
                             (path_shorten(el, - len(str(len(l_el))) - 4), len(l_el)),
@@ -427,7 +434,7 @@ class pftree(object):
         for k, v in kwargs.items():
             if k == 'root':  str_topDir  = v
 
-        if int(self.args['verbosity']) >= 2:
+        if int(self.verbosityLevel) >= 2:
             b_cursorToNextLine = True
         spinner             = nextSpinner(b_cursorToNextLine)
         for root, dirs, files in pftree.walklevel(str_topDir,
@@ -451,9 +458,12 @@ class pftree(object):
                 if l_filesHere:
                     l_files.append(l_filesHere)
                     elements_flash(l_filesHere, 3)
-            self.dp.qprint("\033[A" * 1, end = '', syslog = self.args['syslog'], level =2)
+            if self.toConsole():
+                self.dp.qprint("\033[A" * 1,
+                                end     = '',
+                                syslog  = self.args['syslog'],
+                                level   = 2 )
         if self.toConsole():
-        # if not self.args['json'] and not self.args['jsonStats']:
             self.dp.qprint('Probing complete!              ', level = 1)
         return {
             'status':   b_status,
@@ -483,7 +493,7 @@ class pftree(object):
         if d_probe: l_files     = d_probe['l_files']
         index   = 1
         total   = len(l_files)
-        if int(self.args['verbosity']) and self.toConsole():
+        if int(self.verbosityLevel) and self.toConsole():
             l_range     = tqdm(l_files, desc = ' Constructing tree')
         else:
             l_range     = l_files
@@ -619,7 +629,7 @@ class pftree(object):
 
     @staticmethod
     def sizeof_fmt(num, suffix='B'):
-        for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+        for unit in ['','k','M','G','T','P','E','Z']:
             if abs(num) < 1024.0:
                 return "%3.1f%s%s" % (num, unit, suffix)
             num /= 1024.0
@@ -1173,16 +1183,21 @@ class pftree(object):
         totalSize       = 0
         l_stats         = []
         d_report        = {}
+        srt_report      = ""
 
         for k, v in sorted(self.d_inputTreeCallback.items(),
                             key         = lambda kv: (kv[1]['diskUsage_raw']),
                             reverse     = self.b_statsReverse):
             try:
-                str_report  = "files: %5d│ raw_size: %12d│ human_size: %8s│ dir: %s" % (\
-                        len(self.d_inputTree[k]),
-                        self.d_inputTreeCallback[k]['diskUsage_raw'],
-                        self.d_inputTreeCallback[k]['diskUsage_human'],
-                        k)
+                if not self.args['du'] and not self.args['duf']:
+                    str_report  = "files: %5d│ raw_size: %12d│ human_size: %8s│ dir: %s" % (\
+                            len(self.d_inputTree[k]),
+                            self.d_inputTreeCallback[k]['diskUsage_raw'],
+                            self.d_inputTreeCallback[k]['diskUsage_human'],
+                            k)
+                else:
+                    str_report = '%-10s%s' % (
+                        self.d_inputTreeCallback[k]['diskUsage_human'], k)
             except:
                 pass
             d_report = {
@@ -1191,7 +1206,8 @@ class pftree(object):
                 'diskUsage_human':  self.d_inputTreeCallback[k]['diskUsage_human'],
                 'path':             k
             }
-            self.dp.qprint(str_report, level =2)
+            if self.toConsole() or self.args['duf'] or self.args['du']:
+                self.dp.qprint(str_report, level = self.debugLevel)
             l_stats.append(d_report)
             totalElements   += len(v)
             totalKeys       += 1
@@ -1336,7 +1352,6 @@ class pftree(object):
         if not os.path.exists(self.str_inputDir):
             b_status    = False
             if self.toConsole():
-            # if not self.args['json'] and not self.args['jsonStats']:
                 error.warn(self, 'inputDirFail', exitToOS = True, drawBox = True)
             str_error   = 'error captured while accessing input directory'
         return {
@@ -1381,7 +1396,7 @@ class pftree(object):
             d_stats     = self.stats_compute()
             slog_filter = filters_show()
             log.title_set('Size statistics')
-            if self.args['table3D']: log.render3D()
+            if self.args['table3D']: log.rnder3D()
             log('Total size (raw):        %d\n' % d_stats['totalSize']      )
             log('Total size (friendly):   {:,}\n'.format(d_stats['totalSize']))
             log('Total size (human):      %s\n' % d_stats['totalSize_human'])
@@ -1430,14 +1445,15 @@ class pftree(object):
             if self.b_test:
                 d_test      = self.test_run(*args, **kwargs)
                 b_status    = b_status and d_test['status']
-            if self.b_stats or self.b_statsReverse:
+            if self.b_stats or self.b_statsReverse or self.args['du'] or self.args['duf']:
                 d_stats     = stats_process()
                 b_status    = b_status and d_stats['status']
-                # pudb.set_trace()
                 if self.toConsole():
-                # if not self.args['json'] and not self.args['jsonStats']:
-                    print(d_stats['filterLog'].border_draw())
-                    print(d_stats['bodyLog'].border_draw())
+                    if not self.args['du'] and not self.args['duf']:
+                        print(d_stats['filterLog'].border_draw())
+                        print(d_stats['bodyLog'].border_draw())
+                elif self.args['du'] or self.args['duf']:
+                    print(d_stats['bodyLog'])
                 else:
                     d_stats['filterLog']    = d_stats['filterLog'].json_dump()
                     d_stats['bodyLog']      = d_stats['bodyLog'].json_dump()
@@ -1467,7 +1483,7 @@ class pftree(object):
         if b_status:
             str_origDir = os.getcwd()
             d_tree      = self.tree_construct(
-                d_probe             = self.tree_probe(root= tree_resolveRoot()),
+                d_probe             = self.tree_probe(root = tree_resolveRoot()),
                 constructCallback   = self.dirsize_get
             )
             b_status    = d_tree['status']
