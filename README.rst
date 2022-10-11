@@ -156,15 +156,24 @@ Command line arguments
         tagged with a level.
 
         [--stats | --statsReverse | --du | --duf]
-        If specified, return some stats to caller -- summary list ordered
-        by directory size (--statsReverse does a reverse sort).
+        If specified, return some stats to caller. The amount of information
+        returned depends on the --verbosity.
 
-        The --du flag will present results in a manner generally similar to
-        the GNU `du -ksh <inputDir>/*`. This flag will force an increased
-        verbosity level to allow console output.
+        For --stats (and --statsReverse):
 
-        Using the --duf (du, fast), will suppress all printing intermediary
-        results to console, resulting in a much faster set of operations.
+            * --verbosity 0: return only a final summary of group statistics
+            * --verbosity 1: in addition, return a sorted (by size) list of
+                             subdirectories in the search tree
+            * --verbosity >1: same as above, but provide probing status updates.
+                              NOTE: this incurs a significant performance penalty!
+
+        For --du | --duf
+
+            similar to '--stats' but return directory lists in a fashion similar
+            to the GNU 'du' tool. Both of these set default verbosity values so that
+
+            * --du : only provide a summary
+            * --duf: provide the (full) sorted list as well
 
         [--3D]
         A "toy" flag that simply shows the final stats report with an ASCII
