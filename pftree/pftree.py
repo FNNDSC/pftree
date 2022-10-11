@@ -254,6 +254,8 @@ class pftree(object):
         if len(self.args):
             kwargs  = {**self.args, **kwargs}
 
+        for pkey in ['du', 'duf']:
+            if pkey not in self.args.keys(): self.args[pkey] = False
         if self.args['du']:
             self.verbosityLevel = 2
             self.debugLevel     = 2
