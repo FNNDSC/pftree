@@ -803,14 +803,7 @@ class pftree(object):
             nonlocal    d_tree
             nonlocal    fn_inputReadCallback
 
-            # self.simpleProgress_show(index, total, '%s:%s' %
-            #     ('%25s' %threading.currentThread().getName(),
-            #      '%25s' % fn_inputReadCallback.__name__)
-            # )
-
-            d_read = fn_inputReadCallback(
-                ('%s/%s' % (self.str_inputDir, path), data), **kwargs
-            )
+            d_read = fn_inputReadCallback((path, data), **kwargs)
 
             if 'status' in d_read.keys():
                 d_tree[path]    = d_read
@@ -830,14 +823,7 @@ class pftree(object):
             nonlocal    d_tree
             nonlocal    fn_analysisCallback
 
-            # self.simpleProgress_show(index, total, '%s:%s' %
-            #     ('%25s' % threading.currentThread().getName(),
-            #      '%25s' % fn_analysisCallback.__name__)
-            # )
-
-            d_analysis          = fn_analysisCallback(
-                ('%s/%s' % (self.str_inputDir, path), d_tree[path]), **kwargs
-            )
+            d_analysis          = fn_analysisCallback((path, d_tree[path]), **kwargs)
 
             if 'status' in d_analysis.keys():
                 if d_analysis['status']:
