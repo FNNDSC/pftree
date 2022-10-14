@@ -965,7 +965,13 @@ class pftree(object):
             b_inputStatusHist:      bool = False
             b_outputStatusHist:     bool = False
 
-            for path, data in tqdm(self.d_inputTree.items(), desc = str_desc):
+            if int(self.verbosityLevel) and self.toConsole():
+                iterator        = tqdm( self.d_inputTree.items(),
+                                    desc = ' Analyzing    tree')
+            else:
+                iterator        = self.d_inputTree.items()
+
+            for path, data in iterator:
                 dret_inputSet   = {}
                 dret_analyze    = {}
                 dret_outputSet  = {}
@@ -1054,11 +1060,16 @@ class pftree(object):
                                         threadRem,
                                         alreadyRunCount)
 
+            if int(self.verbosityLevel) and self.toConsole():
+                iterator        = tqdm( self.d_inputTree.items(),
+                                    desc = str_desc)
+            else:
+                iterator        = self.d_inputTree.items()
+
             # Read
             if fn_inputReadCallback:
                 index = 1
-                for path, data in tqdm( self.d_inputTree.items(),
-                                        desc = ' Reading      tree'):
+                for path, data in iterator:
                     dret_inputSet   = inputSet_read(path, data)
                     # filesRead       += dret_inputSet['filesRead']
                     index += 1
@@ -1067,8 +1078,7 @@ class pftree(object):
             if fn_analysisCallback:
                 index               = 1
                 l_threadAnalysis    = []
-                for path, data in tqdm( self.d_inputTree.items(),
-                                        desc = ' Analyzing    tree'):
+                for path, data in iterator:
                     l_threadAnalysis.append(thread_createOnFunction(
                                                     path, data,
                                                     'analysisThread',
@@ -1084,8 +1094,7 @@ class pftree(object):
             # Write
             if fn_outputWriteCallback:
                 index   = 1
-                for path, data in tqdm( self.d_inputTree.items(),
-                                        ' Saving  new  tree'):
+                for path, data in iterator:
                     dret_outputSet  = outputSet_write(path, d_tree[path])
                     # filesSaved      += dret_outputSet['filesSaved']
                     index += 1
