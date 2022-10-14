@@ -967,7 +967,7 @@ class pftree(object):
 
             if int(self.verbosityLevel) and self.toConsole():
                 iterator        = tqdm( self.d_inputTree.items(),
-                                    desc = ' Analyzing    tree')
+                                    desc = str_desc)
             else:
                 iterator        = self.d_inputTree.items()
 
