@@ -67,6 +67,10 @@ package_IOcore  = """
         --inputDir <inputDir>                                                   \\
         [--outputDir <outputDir>]                                               \\"""
 
+package_DSIO  = """
+        <inputDir>                                                              \\
+        <outputDir>                                                             \\"""
+
 package_CLIcore = """
         [--fileFilter <someFilter1,someFilter2,...>]                            \\
         [--filteFilterLogic AND|OR]                                             \\
@@ -158,6 +162,21 @@ package_argSynopsisIO = """
         tree structure, and which contains all output files from the
         per-input-dir processing.
 """
+
+package_argSynopsisDS = """
+
+        <inputDir>
+        A _required_ positional argument for ChRIS DS plugins denoting the
+        input directory to examine. The downstream nested structure of this
+        directory is examined and recreated in the <outputDir>.
+
+        <outputDir>
+        A _required_ positional argument for ChRIS DS plugins denoting the
+        output directory to store data. The structure of this tree mimics
+        that of the <inputDir>, with correspondant directory nodes containing
+        the results of corresponding <inputDir> processing.
+"""
+
 
 package_argSynopsisCore = """
 
@@ -472,12 +491,19 @@ parserSelf.add_argument("--test",
                     dest    = 'test',
                     default = '')
 
-def main(argv = None):
-
-    parser  = ArgumentParser(description        = str_desc,
+# Stand alone parser
+parserSA     = ArgumentParser(description       = str_desc,
                              formatter_class    = RawTextHelpFormatter,
                              parents            = [parserIO, parserCore, parserSelf])
-    args = parser.parse_args()
+
+# DS conformant parser
+parserDS     = ArgumentParser(description       = str_desc,
+                             formatter_class    = RawTextHelpFormatter,
+                             parents            = [parserCore, parserSelf])
+
+def main(argv = None):
+
+    args = parserSA.parse_args()
 
     if args.man or args.synopsis:
         print(str_desc)
