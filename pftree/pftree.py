@@ -264,20 +264,20 @@ class pftree(object):
             self.debugLevel     = 0
 
         for key, value in kwargs.items():
-            if key == 'inputDir':       self.str_inputDir       = value
-            if key == 'maxDepth':       self.maxdepth           = int(value)
-            if key == 'inputFile':      self.str_inputFile      = value
-            if key == 'outputDir':      self.str_outputDir      = value
-            if key == 'verbosity':      self.verbosityLevel     = int(value)
-            if key == 'threads':        self.numThreads         = int(value)
-            if key == 'relativeDir':    self.b_relativeDir      = bool(value)
-            if key == 'stats':          self.b_stats            = bool(value)
-            if key == 'statsReverse':   self.b_statsReverse     = bool(value)
-            if key == 'jsonStats':      self.b_jsonStats        = bool(value)
-            if key == 'json':           self.b_json             = bool(value)
-            if key == 'followLinks':    self.b_followLinks      = bool(value)
-            if key == 'test':           self.str_sleepLength    = value
-            if key == 'outputLeafDir':  self.str_outputLeafDir  = value
+            if key.lower() == 'inputdir':   self.str_inputDir       = value
+            if key == 'maxDepth':           self.maxdepth           = int(value)
+            if key == 'inputFile':          self.str_inputFile      = value
+            if key.lower() == 'outputdir':  self.str_outputDir      = value
+            if key == 'verbosity':          self.verbosityLevel     = int(value)
+            if key == 'threads':            self.numThreads         = int(value)
+            if key == 'relativeDir':        self.b_relativeDir      = bool(value)
+            if key == 'stats':              self.b_stats            = bool(value)
+            if key == 'statsReverse':       self.b_statsReverse     = bool(value)
+            if key == 'jsonStats':          self.b_jsonStats        = bool(value)
+            if key == 'json':               self.b_json             = bool(value)
+            if key == 'followLinks':        self.b_followLinks      = bool(value)
+            if key == 'test':               self.str_sleepLength    = value
+            if key == 'outputLeafDir':      self.str_outputLeafDir  = value
 
         self.checkFor_tests()
 

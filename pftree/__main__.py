@@ -365,11 +365,11 @@ parserSelf  = ArgumentParser(description        = 'Self specific',
                              add_help           = False)
 
 
-parserIO.add_argument("--inputDir",
+parserIO.add_argument("--inputDir", '--inputdir',
                     help    = "input dir",
                     dest    = 'inputDir',
                     default = '')
-parserIO.add_argument("--outputDir",
+parserIO.add_argument("--outputDir", '--outputdir',
                     help    = "output image directory",
                     dest    = 'outputDir',
                     default = '.')
