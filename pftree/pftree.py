@@ -580,8 +580,11 @@ class pftree(object):
                             for y in self.args['dirFilter'].split(',')      \
                                 if y in str_path]
             if self.args['dirFilterLogic'].upper()  == 'AND':
-                for y in self.args['dirFilter'].split(','):
-                    l_dirHits = [x for x in l_dirHits if y in x]
+                if len(l_dirHits) == len(self.args['dirFilter'].split(',')):
+                    for y in self.args['dirFilter'].split(','):
+                        l_dirHits = [x for x in l_dirHits if y in x]
+                else:
+                    l_dirHits = []
             if len(l_dirHits):
                 # Remove any duplicates in the l_dirHits: duplicates can occur
                 # if the tokens in the filter expression map more than once
