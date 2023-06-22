@@ -440,32 +440,33 @@ class pftree(object):
         if int(self.verbosityLevel) >= 2:
             b_cursorToNextLine = True
         spinner             = nextSpinner(b_cursorToNextLine)
+        index:int       = 0
         for root, dirs, files in pftree.walklevel(str_topDir,
                                                   self.maxdepth,
                                                   followlinks = self.b_followLinks):
             b_status = True
             if self.verbosityLevel >= 2: spinner(b_cursorToNextLine)
             str_path = root.split(os.sep)
-            if dirs:
-                l_dirsHere = [root + '/' + x for x in dirs]
-                l_dirs.append(l_dirsHere)
-                if self.verbosityLevel >= 2: elements_flash(l_dirsHere, 2)
-            if files:
+            l_dirs.append(root)
+            if self.verbosityLevel >= 2: elements_flash(l_dirs, 2)
+            if index:
                 l_filesHere = [root + '/' + y for y in files]
-                if len(self.str_inputFile):
-                    l_hit = [s for s in l_filesHere if self.str_inputFile in s]
-                    if l_hit:
-                        l_filesHere = l_hit
-                    else:
-                        l_filesHere = []
-                if l_filesHere:
-                    l_files.append(l_filesHere)
-                    if self.verbosityLevel >= 3: elements_flash(l_filesHere, 3)
+            else:
+                l_filesHere = [root + '/' + y for y in dirs]
+            if len(self.str_inputFile):
+                l_hit = [s for s in l_filesHere if self.str_inputFile in s]
+                if l_hit:
+                    l_filesHere = l_hit
+                else:
+                    l_filesHere = []
+            l_files.append(l_filesHere)
+            if self.verbosityLevel >= 3: elements_flash(l_filesHere, 3)
             if self.toConsole() and self.verbosityLevel >=2:
                 self.dp.qprint("\033[A" * 1,
                                 end     = '',
                                 syslog  = self.args['syslog'],
                                 level   = 2 )
+            index += 1
         if self.toConsole() and self.verbosityLevel >= 2:
             self.dp.qprint('Probing complete!              ', level = 1)
         return {
@@ -494,15 +495,16 @@ class pftree(object):
             if k == 'd_probe':           d_probe                 = v
 
         if d_probe: l_files     = d_probe['l_files']
-        index   = 1
+        index   = 0
         total   = len(l_files)
         if int(self.verbosityLevel) and self.toConsole():
             l_range     = tqdm(l_files, desc = ' Constructing tree')
         else:
             l_range     = l_files
         for l_series in l_range:
-            str_path    = os.path.dirname(l_series[0])
-            l_series    = [ os.path.basename(i) for i in l_series]
+            if len(l_series):
+                str_path    = os.path.dirname(l_series[0])
+                l_series    = [ os.path.basename(i) for i in l_series]
             # self.simpleProgress_show(index, total)
             self.d_inputTree[str_path]  = l_series
             if fn_constructCallback:
