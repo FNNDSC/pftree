@@ -505,14 +505,14 @@ class pftree(object):
             if len(l_series):
                 str_path    = os.path.dirname(l_series[0])
                 l_series    = [ os.path.basename(i) for i in l_series]
-            # self.simpleProgress_show(index, total)
-            self.d_inputTree[str_path]  = l_series
-            if fn_constructCallback:
-                kwargs['path']          = str_path
-                d_constructCallback     = fn_constructCallback(l_series, **kwargs)
-                self.d_inputTreeCallback[str_path]  = d_constructCallback
-            self.d_outputTree[str_path] = ""
-            index += 1
+                # self.simpleProgress_show(index, total)
+                self.d_inputTree[str_path]  = l_series
+                if fn_constructCallback:
+                    kwargs['path']          = str_path
+                    d_constructCallback     = fn_constructCallback(l_series, **kwargs)
+                    self.d_inputTreeCallback[str_path]  = d_constructCallback
+                self.d_outputTree[str_path] = ""
+                index += 1
         return {
             'status':                   True,
             'd_constructCallback':      d_constructCallback,
