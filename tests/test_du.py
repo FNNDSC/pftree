@@ -184,3 +184,23 @@ def test_scanThreads_gatedOnGil(tmp_path: Path, caplog: pytest.LogCaptureFixture
     else:
         assert scanThreads == 4
     assert tree.run().status
+
+
+@pytest.mark.parametrize("splitDepth", [1, 2, 3, 9])
+def test_scan_splitLevelsMatchSequential(tmp_path: Path, splitDepth: int) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    (inputDir / "a/deep/deeper/three.bin").unlink()
+    sequential = TreeScanner(inputDir, maxDepth=-1, followLinks=False).scan()
+    threaded = TreeScanner(inputDir, maxDepth=-1, followLinks=False, threads=4, splitDepth=splitDepth).scan()
+    assert [entry.path for entry in threaded.entries] == [entry.path for entry in sequential.entries]
+    assert threaded.usage == sequential.usage
+
+
+def test_scan_splitClampsToMaxDepth(tmp_path: Path) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    sequential = TreeScanner(inputDir, maxDepth=1, followLinks=False).scan()
+    scanner = TreeScanner(inputDir, maxDepth=1, followLinks=False, threads=4, splitDepth=3)
+    assert scanner.splitDepth == 1
+    assert scanner.scan().usage == sequential.usage
+    rootOnly = TreeScanner(inputDir, maxDepth=0, followLinks=False, threads=4, splitDepth=2).scan()
+    assert len(rootOnly.usage) == 1

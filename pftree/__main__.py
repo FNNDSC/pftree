@@ -136,6 +136,7 @@ CLI_CORE: str = """
         [--verbosity <verbosity>]                                               \\
         [--version]                                                             \\
         [--threads <numThreads>]                                                \\
+        [--threadsSplit <level>]                                                \\
         [--json]
 """
 
@@ -311,6 +312,15 @@ ARGS_SYNOPSIS_CORE: str = """
               single-threaded and a warning says so. With a threaded scan,
               the directory a hard link shared between subtrees is charged
               to can differ from du's choice; the totals do not.
+
+        [--threadsSplit <level>]
+        The directory level at which the scan's threads divide the tree:
+        the directories at that level below the <inputDir> become the
+        workers' jobs, while the levels above are walked by the main
+        thread. Level 1 (the default) gives one job per first-level
+        subdirectory; when one of those holds most of the files, level 2
+        or 3 divides it further and balances the workers. Clamped to
+        --maxDepth.
 
             * The innermost analysis loop, broken into <numThreads>
               threads. Please note the following caveats:
@@ -641,6 +651,13 @@ def parserCore_build() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help="workers for the scan (free-threaded Python only) and the analyze stage; 0 = sequential",
+    )
+    parser.add_argument(
+        "--threadsSplit",
+        dest="threadsSplit",
+        type=int,
+        default=1,
+        help="directory level the scan's threads split the tree at (default 1)",
     )
     parser.add_argument("--verbosity", dest="verbosity", type=int, default=1, help="0 silences the console")
     parser.add_argument("--json", dest="json", action="store_true", help="print the full result as JSON")

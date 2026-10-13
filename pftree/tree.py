@@ -36,6 +36,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path, PurePosixPath
 
@@ -193,12 +194,35 @@ class InodeLedger:
 SubdirHandler = Callable[[Path, FileSize, int], DirUsage | None]
 
 
+@dataclass
+class SplitJob:
+    """A directory at the split level, waiting for a worker.
+
+    Attributes:
+        path: the directory.
+        size: its own sizes, from the parent's ``lstat``.
+        depth: its depth below the root.
+        entryIndex: where in ``entries`` its subtree's entries belong.
+        usageIndex: where in ``usage`` its subtree's usage lines belong.
+
+    Example:
+        >>> SplitJob(Path("/in/a"), FileSize(0, 0), 1, 1, 0).depth
+        1
+    """
+
+    path: Path
+    size: FileSize
+    depth: int
+    entryIndex: int
+    usageIndex: int
+
+
 class TreeScanner:
     """One pass over a directory tree: entries top-down, usage post-order.
 
     Every entry is ``lstat``-ed once, through ``os.scandir``, during the walk; nothing
     is revisited. Hard-linked files count once towards usage, as ``du`` counts them.
-    With ``threads`` above one, each first-level subdirectory is scanned by its own
+    With ``threads`` above one, each directory at ``splitDepth`` is scanned by its own
     worker; that pays only on a free-threaded Python (see ``gil_isEnabled``), and the
     directory a hard link shared between subtrees is charged to then depends on timing.
 
@@ -206,7 +230,9 @@ class TreeScanner:
         root: where the scan starts.
         maxDepth: levels below ``root`` to descend; ``-1`` for all, ``0`` for root only.
         followLinks: descend into symbolic links to directories, each target once.
-        threads: workers for the first-level subdirectories; ``1`` scans in order.
+        threads: workers for the directories at the split level; ``1`` scans in order.
+        splitDepth: the level whose directories become the workers' jobs; clamped to
+            ``maxDepth``.
         entries: the directories in scan order, filled by ``scan``.
         usage: the directories in post-order with the root last, filled by ``scan``.
         ledger: the inodes counted so far, shared with the workers.
@@ -223,12 +249,14 @@ class TreeScanner:
         maxDepth: int,
         followLinks: bool,
         threads: int = 1,
+        splitDepth: int = 1,
         ledger: InodeLedger | None = None,
     ) -> None:
         self.root: Path = root
         self.maxDepth: int = maxDepth
         self.followLinks: bool = followLinks
         self.threads: int = threads
+        self.splitDepth: int = splitDepth if maxDepth == WALK_ALL_DEPTHS else min(splitDepth, maxDepth)
         self.entries: list[WalkEntry] = []
         self.usage: list[DirUsage] = []
         self.ledger: InodeLedger = ledger if ledger is not None else InodeLedger()
@@ -243,44 +271,65 @@ class TreeScanner:
         rootSize: FileSize = fileSize_fromStat(rootStatus)
         if self.followLinks:
             self.ledger.dir_claim((rootStatus.st_dev, rootStatus.st_ino))
-        if self.threads > 1:
+        if self.threads > 1 and self.splitDepth >= 1:
             self.scan_threaded(rootSize)
         else:
             self.dir_scan(self.root, rootSize, depth=0, onSubdir=self.subdir_scan)
         return TreeScan(entries=self.entries, usage=self.usage)
 
     def scan_threaded(self, rootSize: FileSize) -> None:
-        """Scan the root in this thread and each first-level subdirectory in a worker.
+        """Scan down to ``splitDepth`` in this thread, each directory there in a worker.
 
-        The entries and usage lines are assembled in directory order afterwards, so
-        the output order matches the sequential scan's.
+        Directories above the split level, and their files, are scanned here in
+        directory order; every directory at the split level becomes one job. The
+        workers' entries and usage lines are spliced back where the sequential scan
+        would have put them, and their totals added to every ancestor, so the output
+        is the sequential scan's.
 
         Args:
             rootSize: the root directory's own sizes.
         """
-        pending: list[tuple[Path, FileSize]] = []
+        jobs: list[SplitJob] = []
 
-        def subdir_defer(path: Path, size: FileSize, depth: int) -> DirUsage | None:
-            pending.append((path, size))
+        def subdir_handle(path: Path, size: FileSize, depth: int) -> DirUsage | None:
+            if depth < self.splitDepth:
+                return self.dir_scan(path, size, depth, onSubdir=subdir_handle)
+            jobs.append(SplitJob(path, size, depth, len(self.entries), len(self.usage)))
             return None
 
-        rootUsage: DirUsage = self.dir_scan(self.root, rootSize, depth=0, onSubdir=subdir_defer)
-        rootEntry: WalkEntry = self.entries[0]
-        self.entries = [rootEntry]
-        self.usage = []
+        self.dir_scan(self.root, rootSize, depth=0, onSubdir=subdir_handle)
+        usageByPath: dict[Path, DirUsage] = {usage.path: usage for usage in self.usage}
 
-        def subtree_scan(job: tuple[Path, FileSize]) -> TreeScanner:
+        def job_run(job: SplitJob) -> TreeScanner:
             worker: TreeScanner = TreeScanner(self.root, self.maxDepth, self.followLinks, ledger=self.ledger)
-            worker.dir_scan(job[0], job[1], depth=1, onSubdir=worker.subdir_scan)
+            worker.dir_scan(job.path, job.size, job.depth, onSubdir=worker.subdir_scan)
             return worker
 
         with ThreadPoolExecutor(max_workers=self.threads) as pool:
-            for worker in pool.map(subtree_scan, pending):
-                self.entries.extend(worker.entries)
-                self.usage.extend(worker.usage)
-                rootUsage.diskBytes += worker.usage[-1].diskBytes
-                rootUsage.apparentBytes += worker.usage[-1].apparentBytes
-        self.usage.append(rootUsage)
+            workers: list[TreeScanner] = list(pool.map(job_run, jobs))
+        for job, worker in zip(reversed(jobs), reversed(workers), strict=True):
+            self.entries[job.entryIndex : job.entryIndex] = worker.entries
+            self.usage[job.usageIndex : job.usageIndex] = worker.usage
+            subtree: DirUsage = worker.usage[-1]
+            for ancestor in self.ancestors_of(job.path):
+                usageByPath[ancestor].diskBytes += subtree.diskBytes
+                usageByPath[ancestor].apparentBytes += subtree.apparentBytes
+
+    def ancestors_of(self, path: Path) -> list[Path]:
+        """The directories from a job's parent up to the root, as walked.
+
+        Args:
+            path: a directory below the root.
+
+        Returns:
+            Its parent, grandparent and so on, ending with ``root``.
+        """
+        ancestors: list[Path] = []
+        current: Path = path
+        while current != self.root:
+            current = current.parent
+            ancestors.append(current)
+        return ancestors
 
     def subdir_scan(self, path: Path, size: FileSize, depth: int) -> DirUsage:
         """The sequential subdirectory handler: descend at once."""
@@ -597,7 +646,11 @@ class Pftree:
             One DirNode per directory with at least one (``inputFile``-matching) file.
         """
         scan: TreeScan = TreeScanner(
-            self.options.inputDir, self.options.maxDepth, self.options.followLinks, self.scanThreads_get()
+            self.options.inputDir,
+            self.options.maxDepth,
+            self.options.followLinks,
+            self.scanThreads_get(),
+            self.options.threadsSplit,
         ).scan()
         self.usage = scan.usage
         nodes: list[DirNode] = []

@@ -57,6 +57,8 @@ class TreeOptions:
         overwrite: allow callbacks to overwrite existing output; read by subclasses.
         threads: workers for the scan (honoured on a free-threaded Python only) and
             for the analyze stage; ``0`` runs both sequentially.
+        threadsSplit: the directory level whose directories the scan's threads take
+            as jobs; ``1`` is the first level below ``inputDir``.
         verbosity: ``0`` silences the console; higher values show more.
         json: the caller wants machine output, so no progress bars.
         stats: compute the per-directory report, largest directory last.
@@ -87,6 +89,7 @@ class TreeOptions:
     followLinks: bool = False
     overwrite: bool = False
     threads: int = 0
+    threadsSplit: int = 1
     verbosity: int = 1
     json: bool = False
     stats: bool = False
