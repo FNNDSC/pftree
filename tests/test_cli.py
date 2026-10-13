@@ -3,12 +3,28 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 
 from pftree import __version__
-from pftree.__main__ import main, parser_build
+from pftree.__main__ import (
+    BG_PAGE,
+    FG_BODY,
+    FG_COMMAND,
+    FG_CONTINUATION,
+    FG_FLAG,
+    FG_HEADING,
+    FG_PLACEHOLDER,
+    FG_STRING,
+    NO_COLOUR,
+    cliLine_highlight,
+    inlineCode_render,
+    main,
+    manual_colourize,
+    parser_build,
+)
 
 
 def tree_make(root: Path) -> Path:
@@ -107,6 +123,40 @@ def test_main_manPrintsFullManual(capsys: pytest.CaptureFixture[str]) -> None:
     assert "glob:*.nii.gz" in out
     assert "EXAMPLES" in out
     assert "\033[" not in out
+
+
+def test_cliLine_highlight_coloursEachTokenKind() -> None:
+    line: str = "        pftree --inputDir <inputDir> --fileFilter 'glob:*.dcm' \\"
+    coloured: str = cliLine_highlight(line)
+    assert FG_COMMAND + "pftree" in coloured
+    assert FG_FLAG + "--inputDir" in coloured
+    assert FG_PLACEHOLDER + "<inputDir>" in coloured
+    assert FG_STRING + "'glob:*.dcm'" in coloured
+    assert coloured.endswith(FG_CONTINUATION + "\\" + FG_BODY)
+
+
+def test_inlineCode_render_dropsBackticksAndColours() -> None:
+    line: str = "        ``pftree`` in and of itself does not really do any work."
+    assert (
+        inlineCode_render(line, colour=False)
+        == "        pftree in and of itself does not really do any work."
+    )
+    assert FG_FLAG + "pftree" + FG_BODY in inlineCode_render(line, colour=True)
+
+
+def test_main_manHasNoBackticksWhenPiped(capsys: pytest.CaptureFixture[str]) -> None:
+    main(["--man"])
+    assert "``" not in capsys.readouterr().out
+
+
+def test_manual_colourize_padsEveryLineToWidth() -> None:
+    page: str = manual_colourize("    NAME\n\n        pftree - x\n", width=40)
+    for line in page.splitlines():
+        assert line.startswith(BG_PAGE)
+        assert line.endswith(NO_COLOUR)
+        visible: str = re.sub(r"\033\[[0-9;]*m", "", line)
+        assert len(visible) == 40
+    assert page.splitlines()[0].startswith(BG_PAGE + FG_HEADING)
 
 
 def test_main_synopsisPrintsBriefManual(capsys: pytest.CaptureFixture[str]) -> None:

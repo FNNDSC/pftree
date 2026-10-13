@@ -32,6 +32,7 @@ import argparse
 import json
 import logging
 import re
+import shutil
 import sys
 from collections.abc import Sequence
 
@@ -39,14 +40,38 @@ from pftree import __version__
 from pftree.models import RunResult, StatsResult, TreeOptions
 from pftree.tree import Pftree
 
-CYAN: str = "\033[36m"
-YELLOW: str = "\033[33m"
 NO_COLOUR: str = "\033[0m"
+BG_PAGE: str = "\033[40m"
+FG_BODY: str = "\033[97m"
+FG_BANNER: str = "\033[36m"
+FG_VERSION: str = "\033[1;33m"
+FG_HEADING: str = "\033[1;33m"
+FG_COMMAND: str = "\033[1;32m"
+FG_FLAG: str = "\033[36m"
+FG_PLACEHOLDER: str = "\033[35m"
+FG_STRING: str = "\033[33m"
+FG_CONTINUATION: str = "\033[90m"
+FALLBACK_WIDTH: int = 100
 
 MANUAL_HEADING: re.Pattern[str] = re.compile(
     r"^\s{4}(NAME|SYNOPSIS|BRIEF EXAMPLE|DESCRIPTION|ARGS|EXAMPLES)\s*$"
 )
-MANUAL_OPTION: re.Pattern[str] = re.compile(r"^\s{8}(\[--|--inputDir|<inputDir>|<outputDir>)")
+MANUAL_CLI_LINE: re.Pattern[str] = re.compile(r"^\s{8,}(pftree\b|\[--|--|<inputDir>|<outputDir>|/|\.\.\.)")
+CLI_TOKEN: re.Pattern[str] = re.compile(
+    r"(?P<command>\bpftree\b)"
+    r"|(?P<flag>--[A-Za-z0-9]+)"
+    r"|(?P<string>'[^']*')"
+    r"|(?P<placeholder><[^<>]+>)"
+    r"|(?P<continuation>\\$)"
+)
+INLINE_CODE: re.Pattern[str] = re.compile(r"``([^`]+)``")
+CLI_TOKEN_COLOURS: dict[str, str] = {
+    "command": FG_COMMAND,
+    "flag": FG_FLAG,
+    "string": FG_STRING,
+    "placeholder": FG_PLACEHOLDER,
+    "continuation": FG_CONTINUATION,
+}
 
 BANNER_ART: str = r"""
 
@@ -346,21 +371,94 @@ EXAMPLES: str = """
 VERBOSITY_LOG_LEVELS: dict[int, int] = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO}
 
 
-def banner_render(colour: bool) -> str:
+def page_width() -> int:
+    """The terminal width the manual is padded to.
+
+    Returns:
+        The current terminal's column count, or a fallback when there is none.
+    """
+    return shutil.get_terminal_size((FALLBACK_WIDTH, 24)).columns
+
+
+def line_onPage(coloured: str, visibleLength: int, width: int, foreground: str) -> str:
+    """Set one line on the manual's black page.
+
+    Args:
+        coloured: the line with any inline colour codes already applied.
+        visibleLength: the line's length without colour codes.
+        width: the page width to pad to.
+        foreground: the colour the line starts in.
+
+    Returns:
+        The line with the page background, padded to the width, reset at the end.
+    """
+    padding: str = " " * max(width - visibleLength, 0)
+    return BG_PAGE + foreground + coloured + padding + NO_COLOUR
+
+
+def banner_render(colour: bool, width: int = FALLBACK_WIDTH) -> str:
     """The title block of the manual.
 
     Args:
-        colour: wrap the art and version in ANSI colours.
+        colour: set the banner on the black page, cyan, with the version in yellow.
+        width: the page width when coloured.
 
     Returns:
         The banner text.
     """
-    body: str = BANNER_ART + BANNER_TEXT.format(
-        version=(YELLOW + __version__ + CYAN) if colour else __version__
-    )
+    if not colour:
+        return BANNER_ART + BANNER_TEXT.format(version=__version__)
+    lines: list[str] = []
+    for line in (BANNER_ART + BANNER_TEXT.format(version="{version}")).splitlines():
+        visible: str = line.replace("{version}", __version__)
+        coloured: str = line.replace("{version}", FG_VERSION + __version__ + FG_BANNER)
+        lines.append(line_onPage(coloured, len(visible), width, FG_BANNER))
+    return "\n".join(lines)
+
+
+def cliLine_highlight(line: str) -> str:
+    """Colour a command-line example: command, flags, quoted strings, placeholders.
+
+    Args:
+        line: one line of a SYNOPSIS or EXAMPLES block.
+
+    Returns:
+        The line with each recognised token coloured and the body colour restored
+        after it.
+    """
+
+    def token_colour(match: re.Match[str]) -> str:
+        kind: str = str(match.lastgroup)
+        return CLI_TOKEN_COLOURS[kind] + match.group(0) + FG_BODY
+
+    return CLI_TOKEN.sub(token_colour, line)
+
+
+def inlineCode_render(line: str, colour: bool) -> str:
+    """Replace ````code```` spans in prose with the bare text, coloured as a flag.
+
+    Args:
+        line: one prose line of the manual.
+        colour: colour the span; otherwise only drop the backticks.
+
+    Returns:
+        The line with every span rewritten.
+    """
     if colour:
-        return CYAN + body + NO_COLOUR
-    return body
+        return INLINE_CODE.sub(lambda match: FG_FLAG + match.group(1) + FG_BODY, line)
+    return INLINE_CODE.sub(lambda match: match.group(1), line)
+
+
+def manual_plain(text: str) -> str:
+    """The manual without colour and without the inline-code backticks.
+
+    Args:
+        text: the manual as ``synopsis`` returns it.
+
+    Returns:
+        The text for a pipe or a file.
+    """
+    return "\n".join(inlineCode_render(line, colour=False) for line in text.splitlines())
 
 
 def synopsis(shortOnly: bool = False) -> str:
@@ -640,25 +738,31 @@ def result_report(args: argparse.Namespace, result: RunResult) -> None:
         print(f"Elapsed time = {result.runTime:.6f} seconds")
 
 
-def manual_colourize(text: str) -> str:
-    """Colour the manual: section headings yellow, option lines cyan.
+def manual_colourize(text: str, width: int = FALLBACK_WIDTH) -> str:
+    """Set the manual on a black page: white body, yellow headings, highlighted CLI.
+
+    Every line gets the page background and is padded to ``width`` so the page is a
+    solid block whatever the terminal's own background. Section headings are yellow;
+    lines that show command-line syntax (the SYNOPSIS, the option headers in ARGS and
+    the EXAMPLES) get ``cliLine_highlight``; everything else is white.
 
     Args:
         text: the manual as ``synopsis`` returns it.
+        width: the page width.
 
     Returns:
-        The same text with ANSI colours on headings and on the lines that name an
-        argument in the SYNOPSIS and ARGS sections.
+        The coloured manual.
     """
-    coloured: list[str] = []
+    page: list[str] = []
     for line in text.splitlines():
         if MANUAL_HEADING.match(line):
-            coloured.append(YELLOW + line + NO_COLOUR)
-        elif MANUAL_OPTION.match(line):
-            coloured.append(CYAN + line + NO_COLOUR)
+            page.append(line_onPage(line, len(line), width, FG_HEADING))
+        elif MANUAL_CLI_LINE.match(line):
+            page.append(line_onPage(cliLine_highlight(line), len(line), width, FG_BODY))
         else:
-            coloured.append(line)
-    return "\n".join(coloured)
+            visible: str = inlineCode_render(line, colour=False)
+            page.append(line_onPage(inlineCode_render(line, colour=True), len(visible), width, FG_BODY))
+    return "\n".join(page)
 
 
 def manual_print(shortOnly: bool) -> None:
@@ -669,8 +773,13 @@ def manual_print(shortOnly: bool) -> None:
     """
     colour: bool = sys.stdout.isatty()
     manual: str = synopsis(shortOnly)
-    print(banner_render(colour))
-    print(manual_colourize(manual) if colour else manual)
+    if not colour:
+        print(banner_render(colour))
+        print(manual_plain(manual))
+        return
+    width: int = page_width()
+    print(banner_render(colour, width))
+    print(manual_colourize(manual, width))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
