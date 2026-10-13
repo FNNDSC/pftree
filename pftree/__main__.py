@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 from collections.abc import Sequence
 
@@ -41,6 +42,11 @@ from pftree.tree import Pftree
 CYAN: str = "\033[36m"
 YELLOW: str = "\033[33m"
 NO_COLOUR: str = "\033[0m"
+
+MANUAL_HEADING: re.Pattern[str] = re.compile(
+    r"^\s{4}(NAME|SYNOPSIS|BRIEF EXAMPLE|DESCRIPTION|ARGS|EXAMPLES)\s*$"
+)
+MANUAL_OPTION: re.Pattern[str] = re.compile(r"^\s{8}(\[--|--inputDir|<inputDir>|<outputDir>)")
 
 BANNER_ART: str = r"""
 
@@ -634,6 +640,27 @@ def result_report(args: argparse.Namespace, result: RunResult) -> None:
         print(f"Elapsed time = {result.runTime:.6f} seconds")
 
 
+def manual_colourize(text: str) -> str:
+    """Colour the manual: section headings yellow, option lines cyan.
+
+    Args:
+        text: the manual as ``synopsis`` returns it.
+
+    Returns:
+        The same text with ANSI colours on headings and on the lines that name an
+        argument in the SYNOPSIS and ARGS sections.
+    """
+    coloured: list[str] = []
+    for line in text.splitlines():
+        if MANUAL_HEADING.match(line):
+            coloured.append(YELLOW + line + NO_COLOUR)
+        elif MANUAL_OPTION.match(line):
+            coloured.append(CYAN + line + NO_COLOUR)
+        else:
+            coloured.append(line)
+    return "\n".join(coloured)
+
+
 def manual_print(shortOnly: bool) -> None:
     """Print the banner and the manual, coloured when stdout is a terminal.
 
@@ -641,8 +668,9 @@ def manual_print(shortOnly: bool) -> None:
         shortOnly: print the brief manual rather than the full one.
     """
     colour: bool = sys.stdout.isatty()
+    manual: str = synopsis(shortOnly)
     print(banner_render(colour))
-    print(synopsis(shortOnly))
+    print(manual_colourize(manual) if colour else manual)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
