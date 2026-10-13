@@ -1,0 +1,30 @@
+= pftree: purpose
+:toc:
+
+== Abstract
+
+pftree answers one question about a directory tree and then lets a caller act on the answer: which directories hold files, and which files. It records the answer as a mapping from directory to file names, offers filters that narrow it, and runs a read, analyze and write sequence over every directory that remains, mirroring the input layout into an output tree. The package exists because that sequence recurs in almost every tool that processes medical imaging data on a filesystem, and writing it once, with its failure modes handled, is cheaper than writing it in each tool.
+
+== The problem
+
+Imaging data on disk is organized by directory. A DICOM series is a directory of slices; a FreeSurfer subject is a directory of volumes and surfaces; a BIDS dataset nests subjects, sessions and modalities as directories. A tool that converts, anonymizes, measures or renders such data therefore works per directory, not per file, and its first job is always the same: find the directories that matter, decide which of their files are inputs, and put the outputs somewhere that preserves the relationship to the inputs. Done ad hoc, this job is repeated in every tool, each with its own walk, its own notion of a filter, its own way of failing when one directory is unreadable, and its own idea of where output goes.
+
+The ChRIS platform sharpens the need. A ChRIS plugin receives an input directory and an output directory and nothing else; whatever structure it finds under the first it must reproduce under the second. Plugins that share a walk behave alike, can be filtered alike from the platform's user interface, and fail alike when data is malformed. Plugins that do not share one cannot.
+
+== What pftree is
+
+pftree is a Python package with an engine class, `Pftree`, and a command, `pftree`. The engine walks an input directory once with `os.scandir`, stat-ing every entry as it goes, and produces three things from that single pass: the `tree`, which maps each directory holding files to the sorted names of those files; one `DirNode` per directory, carrying its path, its path relative to the input root, its files with their sizes, and the output path that corresponds to it; and the cumulative disk usage of every directory in post-order, which is the report `du` prints.
+
+Two filters narrow the tree. A file filter tests names; a directory filter tests the path relative to the input root. Each takes comma-separated tokens that are substrings, shell globs, regular expressions or negations of those, combined under AND or OR. The two filters are always ANDed, because a file that passes in a directory that does not is not an input, and a directory left with no files leaves the tree.
+
+Processing is three callbacks, read, analyze and write, called in that order for every directory. Reads and writes run sequentially; analyses run in a thread pool when asked. A callback receives the `DirNode` and returns a `StageResult` whose `status` says whether the directory succeeded. A directory whose analyze fails, or whose callback raises, is logged with its traceback and dropped before the write stage, and the run continues with the rest; a run fails only when every directory did. This is the behaviour a batch over thousands of series needs: one bad series should cost one series, not the batch.
+
+The command exposes the engine without a subclass. It prints the tree as JSON, runs the three stages with demonstration callbacks under `--test`, and, with `--du`, prints byte for byte what `du -k` prints, so that `pftree --du --inputDir /data | xdu` works. The `du` compatibility is deliberate: a tool that reports sizes in a format no other tool reads has reported them to no one.
+
+== What pftree is not
+
+pftree does not map files one to one. A tool whose unit is a single file, read here and written there, is better served by a plain file iterator; pftree's directory grouping would be a detour. pftree also knows nothing of ChRIS, CUBE or any store; it reads and writes a filesystem, and a plugin built on it is a ChRIS plugin because of its wrapper, not because of pftree.
+
+== Who uses it
+
+pftree is the base of two families. The `pfdo` family (`pfdo`, `pfdo_run`, `pfdo_med2image`, `pfdo_mgz2image`, `pfdo_mri_unet`) subclasses it to run one operation per directory. The `pfdicom` family (`pfdicom`, `pfdicom_tagExtract`, `pfdicom_tagSub`, `pfdicom_rev`, `pfdicom_agesort`) subclasses it to read, rewrite and summarize DICOM headers per series. The ChRIS plugins built on those (`pl-shexec`, `pl-pfdicom_tagExtract`, `pl-pfdicom_tagSub` and others) inherit the walk, the filters and the failure semantics, which is the point.

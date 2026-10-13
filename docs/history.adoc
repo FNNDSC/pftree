@@ -1,0 +1,28 @@
+= pftree: history
+:toc:
+
+== Abstract
+
+pftree began in July 2018 as a small module for building a dictionary of a filesystem tree, grew through 2022 into the walk-and-callback engine beneath the pfdo and pfdicom families, and was rewritten in October 2026 as version 4 on the standard library with typed results, a single-pass scan and a `du`-exact report. This note records the milestones and the reasons for the turns.
+
+== 2018: a dictionary of a tree
+
+The first commits, on 10 July 2018, established the shape that survives today: walk an input directory, key a dictionary by each directory path, store the list of files as the value, and recreate the directory structure under an output directory. The three-callback idea, read, analyze and write per directory, arrived within the same month, as did threading of the analyze stage in batches and the `--stats` report of directory sizes. Versions moved from 1.0 to 1.6 in six weeks, which is the cadence of a module being shaped by the first tools built on it.
+
+The motivation was the pf* family of command-line tools the lab was writing for its imaging pipelines, each of which needed to find series in a tree and put results back in a parallel tree. pftree was the shared walk; `pfmisc` was the shared bag of helpers it drew logging, timing and directory creation from.
+
+== 2019 to 2022: version 2 and 3
+
+Version 2.0 in November 2019 and 3.0 in September 2022 followed the needs of the families above. pfdicom's tag extraction and anonymization tools wanted leaf directories renamed to say what they held, which became `--outputLeafDir`; pfdo wanted file and directory filters with AND and OR logic, which became `--fileFilter`, `--dirFilter` and their logic flags, with a correction to the AND case for more than two tokens in December 2022. October 2022 brought `--du` and `--duf`, a `du`-like report of directory sizes, and the ChRIS-conformant parser variant that lets a plugin supply positional input and output directories in place of `--inputDir` and `--outputDir`. The last 3.x change, 3.4.2 in July 2023, fixed an edge case in the tree probe.
+
+== 2026: version 4
+
+By 2026 the module carried the marks of eight years of accretion. It depended on `pfmisc`, whose own code had Python 2 call sites that no longer ran, and imported the `pudb` debugger at module level. The `--outputLeafDir` template was applied with `eval`. The threaded analyze loop had workers writing into shared dictionaries without a lock. There were ten bare `except:` clauses, no tests and no continuous integration, and `--du` measured sizes in a second pass over every file after the walk, which made it three times slower than it needed to be. Six packages depended on it nonetheless, which was the argument for repairing it rather than replacing it.
+
+Version 4.0.0, released on 13 October 2026, kept the engine's job and its command line and rebuilt the rest. The dependencies became the standard library and `tqdm`. Options and results became dataclasses in a `models` module; the callbacks became `inputRead_callback`, `inputAnalyze_callback` and `outputSave_callback`, taking a `DirNode` and returning a `StageResult`. The scan became a single `scandir` pass yielding both the tree and the cumulative usage, threadable on a free-threaded Python with a chosen split level. The filters gained `glob:`, `re:` and `!` tokens, and the directory filter moved to the path relative to the input root so that the input root's own name could no longer match. `--du` was made identical to `du -k`, verified against GNU `du` in the test suite and on a tree of a million entries, so that its output could be piped into tools that read `du`. The manual was restored in full and set on a coloured page. Packaging moved to `pyproject.toml` with publication from continuous integration by trusted publishing.
+
+Version 4.1.0, the same month, moved the manual renderer into `pftree.manual` so that pfdo and the packages below it could render their own pages with it rather than copy the code.
+
+== Consequences for dependents
+
+Version 4 owes no compatibility to 3.x, by decision: the packages that depend on pftree are the lab's own, their built images are frozen, and each is repaired when it is next rebuilt. pfdo 6 is the first, rebuilt on 4.1; pfdo_run and the pfdicom family follow.

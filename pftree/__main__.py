@@ -31,49 +31,15 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import re
-import shutil
 import sys
 from collections.abc import Sequence
 
 from pftree import __version__
+from pftree.manual import Manual, manual_print
 from pftree.models import DuReport, RunResult, StatsResult, TreeOptions
 from pftree.tree import Pftree, du_humanize
 
-NO_COLOUR: str = "\033[0m"
-BG_PAGE: str = "\033[40m"
-FG_BODY: str = "\033[97m"
-FG_BANNER: str = "\033[36m"
-FG_VERSION: str = "\033[1;33m"
-FG_HEADING: str = "\033[1;33m"
-FG_COMMAND: str = "\033[1;32m"
-FG_FLAG: str = "\033[36m"
-FG_PLACEHOLDER: str = "\033[35m"
-FG_STRING: str = "\033[33m"
-FG_CONTINUATION: str = "\033[90m"
-FALLBACK_WIDTH: int = 100
-
-MANUAL_HEADING: re.Pattern[str] = re.compile(
-    r"^\s{4}(NAME|SYNOPSIS|BRIEF EXAMPLE|DESCRIPTION|ARGS|EXAMPLES)\s*$"
-)
-MANUAL_CLI_LINE: re.Pattern[str] = re.compile(r"^\s{8,}(pftree\b|\[--|--|<inputDir>|<outputDir>|/|\.\.\.)")
-CLI_TOKEN: re.Pattern[str] = re.compile(
-    r"(?P<command>\bpftree\b)"
-    r"|(?P<flag>--[A-Za-z0-9]+)"
-    r"|(?P<string>'[^']*')"
-    r"|(?P<placeholder><[^<>]+>)"
-    r"|(?P<continuation>\\$)"
-)
-INLINE_CODE: re.Pattern[str] = re.compile(r"``([^`]+)``")
 BANNER_TITLE: str = "Path-File tree structure"
-BANNER_BULLET: re.Pattern[str] = re.compile(r"^(\s+)\*")
-CLI_TOKEN_COLOURS: dict[str, str] = {
-    "command": FG_COMMAND,
-    "flag": FG_FLAG,
-    "string": FG_STRING,
-    "placeholder": FG_PLACEHOLDER,
-    "continuation": FG_CONTINUATION,
-}
 
 BANNER_ART: str = r"""
 
@@ -408,105 +374,6 @@ EXAMPLES: str = """
 VERBOSITY_LOG_LEVELS: dict[int, int] = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO}
 
 
-def page_width() -> int:
-    """The terminal width the manual is padded to.
-
-    Returns:
-        The current terminal's column count, or a fallback when there is none.
-    """
-    return shutil.get_terminal_size((FALLBACK_WIDTH, 24)).columns
-
-
-def line_onPage(coloured: str, visibleLength: int, width: int, foreground: str) -> str:
-    """Set one line on the manual's black page.
-
-    Args:
-        coloured: the line with any inline colour codes already applied.
-        visibleLength: the line's length without colour codes.
-        width: the page width to pad to.
-        foreground: the colour the line starts in.
-
-    Returns:
-        The line with the page background, padded to the width, reset at the end.
-    """
-    padding: str = " " * max(width - visibleLength, 0)
-    return BG_PAGE + foreground + coloured + padding + NO_COLOUR
-
-
-def banner_render(colour: bool, width: int = FALLBACK_WIDTH) -> str:
-    """The title block of the manual.
-
-    Args:
-        colour: set the banner on the black page: the art cyan, the title yellow,
-            the prose white, the version yellow, the bullets cyan.
-        width: the page width when coloured.
-
-    Returns:
-        The banner text.
-    """
-    if not colour:
-        return BANNER_ART + BANNER_TEXT.format(version=__version__)
-    lines: list[str] = [line_onPage(line, len(line), width, FG_BANNER) for line in BANNER_ART.splitlines()]
-    for line in BANNER_TEXT.format(version="{version}").splitlines():
-        visible: str = line.replace("{version}", __version__)
-        if line.strip() == BANNER_TITLE:
-            lines.append(line_onPage(line, len(line), width, FG_HEADING))
-        elif "{version}" in line:
-            coloured: str = line.replace("{version}", FG_VERSION + __version__ + FG_BODY)
-            lines.append(line_onPage(coloured, len(visible), width, FG_BODY))
-        elif BANNER_BULLET.match(line):
-            coloured = BANNER_BULLET.sub(lambda match: match.group(1) + FG_FLAG + "*" + FG_BODY, line)
-            lines.append(line_onPage(coloured, len(visible), width, FG_BODY))
-        else:
-            lines.append(line_onPage(line, len(line), width, FG_BODY))
-    return "\n".join(lines)
-
-
-def cliLine_highlight(line: str) -> str:
-    """Colour a command-line example: command, flags, quoted strings, placeholders.
-
-    Args:
-        line: one line of a SYNOPSIS or EXAMPLES block.
-
-    Returns:
-        The line with each recognised token coloured and the body colour restored
-        after it.
-    """
-
-    def token_colour(match: re.Match[str]) -> str:
-        kind: str = str(match.lastgroup)
-        return CLI_TOKEN_COLOURS[kind] + match.group(0) + FG_BODY
-
-    return CLI_TOKEN.sub(token_colour, line)
-
-
-def inlineCode_render(line: str, colour: bool) -> str:
-    """Replace ````code```` spans in prose with the bare text, coloured as a flag.
-
-    Args:
-        line: one prose line of the manual.
-        colour: colour the span; otherwise only drop the backticks.
-
-    Returns:
-        The line with every span rewritten.
-    """
-    if colour:
-        return INLINE_CODE.sub(lambda match: FG_FLAG + match.group(1) + FG_BODY, line)
-    return INLINE_CODE.sub(lambda match: match.group(1), line)
-
-
-def manual_plain(text: str) -> str:
-    """The manual without colour and without the inline-code backticks.
-
-    Args:
-        text: the manual as ``synopsis`` returns it.
-
-    Returns:
-        The text for a pipe or a file.
-    """
-    return "\n".join(inlineCode_render(line, colour=False) for line in text.splitlines())
-
-
 def synopsis(shortOnly: bool = False) -> str:
     """Assemble the manual.
 
@@ -577,6 +444,23 @@ def synopsis(shortOnly: bool = False) -> str:
     return shortSynopsis + description
 
 
+def manual_build() -> Manual:
+    """The pftree manual page.
+
+    Returns:
+        The page, with both synopses assembled.
+    """
+    return Manual(
+        command="pftree",
+        art=BANNER_ART,
+        title=BANNER_TITLE,
+        text=BANNER_TEXT,
+        version=__version__,
+        synopsisShort=synopsis(shortOnly=True),
+        synopsisFull=synopsis(shortOnly=False),
+    )
+
+
 def parserIO_build() -> argparse.ArgumentParser:
     """The input and output directory arguments of the standalone command.
 
@@ -597,8 +481,12 @@ def parserIO_build() -> argparse.ArgumentParser:
     return parser
 
 
-def parserCore_build() -> argparse.ArgumentParser:
+def parserCore_build(command: str = "pftree", version: str = __version__) -> argparse.ArgumentParser:
     """The engine options shared with packages built on pftree.
+
+    Args:
+        command: the name ``--version`` prints, for a package built on pftree.
+        version: the version ``--version`` prints.
 
     Returns:
         A parent parser with the walk, filter, output and threading options.
@@ -668,7 +556,7 @@ def parserCore_build() -> argparse.ArgumentParser:
     parser.add_argument(
         "--synopsis", dest="synopsis", action="store_true", help="show the brief manual and exit"
     )
-    parser.add_argument("--version", action="version", version=f"pftree {__version__}")
+    parser.add_argument("--version", action="version", version=f"{command} {version}")
     return parser
 
 
@@ -814,50 +702,6 @@ def result_report(args: argparse.Namespace, result: RunResult) -> None:
         print(f"Elapsed time = {result.runTime:.6f} seconds")
 
 
-def manual_colourize(text: str, width: int = FALLBACK_WIDTH) -> str:
-    """Set the manual on a black page: white body, yellow headings, highlighted CLI.
-
-    Every line gets the page background and is padded to ``width`` so the page is a
-    solid block whatever the terminal's own background. Section headings are yellow;
-    lines that show command-line syntax (the SYNOPSIS, the option headers in ARGS and
-    the EXAMPLES) get ``cliLine_highlight``; everything else is white.
-
-    Args:
-        text: the manual as ``synopsis`` returns it.
-        width: the page width.
-
-    Returns:
-        The coloured manual.
-    """
-    page: list[str] = []
-    for line in text.splitlines():
-        if MANUAL_HEADING.match(line):
-            page.append(line_onPage(line, len(line), width, FG_HEADING))
-        elif MANUAL_CLI_LINE.match(line):
-            page.append(line_onPage(cliLine_highlight(line), len(line), width, FG_BODY))
-        else:
-            visible: str = inlineCode_render(line, colour=False)
-            page.append(line_onPage(inlineCode_render(line, colour=True), len(visible), width, FG_BODY))
-    return "\n".join(page)
-
-
-def manual_print(shortOnly: bool) -> None:
-    """Print the banner and the manual, coloured when stdout is a terminal.
-
-    Args:
-        shortOnly: print the brief manual rather than the full one.
-    """
-    colour: bool = sys.stdout.isatty()
-    manual: str = synopsis(shortOnly)
-    if not colour:
-        print(banner_render(colour))
-        print(manual_plain(manual))
-        return
-    width: int = page_width()
-    print(banner_render(colour, width))
-    print(manual_colourize(manual, width))
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the command.
 
@@ -870,7 +714,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser: argparse.ArgumentParser = parser_build()
     args: argparse.Namespace = parser.parse_args(argv)
     if args.man or args.synopsis:
-        manual_print(shortOnly=not args.man)
+        manual_print(manual_build(), shortOnly=not args.man)
         return 0
     if not args.inputDir:
         parser.error("--inputDir is required")
