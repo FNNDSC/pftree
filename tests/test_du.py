@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import os
 import shutil
 import subprocess
@@ -42,12 +43,21 @@ def pftree_lines(inputDir: Path, *flags: str, capsys: pytest.CaptureFixture[str]
     return capsys.readouterr().out.splitlines()
 
 
+def lines_assertSame(actual: list[str], expected: list[str]) -> None:
+    """Compare as sets of lines, showing the full diff and the du version on failure."""
+    version: str = subprocess.run([str(DU), "--version"], capture_output=True, text=True).stdout.splitlines()[
+        0
+    ]
+    diff: str = "\n".join(difflib.unified_diff(sorted(expected), sorted(actual), "du", "pftree", lineterm=""))
+    assert sorted(actual) == sorted(expected), f"{version}\n{diff}"
+
+
 @pytest.mark.skipif(DU is None, reason="GNU du not installed")
 def test_du_matchesDuK(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     inputDir: Path = tree_make(tmp_path)
     expected: list[str] = du_lines(inputDir, "-k")
     actual: list[str] = pftree_lines(inputDir, "--du", capsys=capsys)
-    assert sorted(actual) == sorted(expected)
+    lines_assertSame(actual, expected)
     assert actual[-1] == expected[-1]
 
 
@@ -56,7 +66,7 @@ def test_du_apparentSizeMatchesDu(tmp_path: Path, capsys: pytest.CaptureFixture[
     inputDir: Path = tree_make(tmp_path)
     expected: list[str] = du_lines(inputDir, "-k", "--apparent-size")
     actual: list[str] = pftree_lines(inputDir, "--du", "--apparentSize", capsys=capsys)
-    assert sorted(actual) == sorted(expected)
+    lines_assertSame(actual, expected)
 
 
 @pytest.mark.skipif(DU is None, reason="GNU du not installed")
@@ -64,7 +74,7 @@ def test_duf_matchesDuH(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> N
     inputDir: Path = tree_make(tmp_path)
     expected: list[str] = du_lines(inputDir, "-h")
     actual: list[str] = pftree_lines(inputDir, "--duf", capsys=capsys)
-    assert sorted(actual) == sorted(expected)
+    lines_assertSame(actual, expected)
 
 
 @pytest.mark.skipif(DU is None, reason="GNU du not installed")
@@ -72,7 +82,7 @@ def test_duf_apparentMatchesDuH(tmp_path: Path, capsys: pytest.CaptureFixture[st
     inputDir: Path = tree_make(tmp_path)
     expected: list[str] = du_lines(inputDir, "-h", "--apparent-size")
     actual: list[str] = pftree_lines(inputDir, "--duf", "--apparentSize", capsys=capsys)
-    assert sorted(actual) == sorted(expected)
+    lines_assertSame(actual, expected)
 
 
 @pytest.mark.skipif(DU is None, reason="GNU du not installed")
@@ -84,7 +94,7 @@ def test_du_followLinksMatchesDuL(tmp_path: Path, capsys: pytest.CaptureFixture[
     (inputDir / "linked").symlink_to(elsewhere, target_is_directory=True)
     expected: list[str] = du_lines(inputDir, "-k", "-L")
     actual: list[str] = pftree_lines(inputDir, "--du", "--followLinks", capsys=capsys)
-    assert sorted(actual) == sorted(expected)
+    lines_assertSame(actual, expected)
 
 
 def test_scan_postOrderRootLastAndEveryDir(tmp_path: Path) -> None:
