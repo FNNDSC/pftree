@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from pftree.tree import DirNode, Pftree, StageResult, TreeOptions, size_format
+from pftree.models import DirNode, StageResult, TreeOptions
+from pftree.tree import Pftree, size_format
 
 
 def tree_make(root: Path) -> Path:

@@ -91,11 +91,37 @@ def test_main_versionExitsZero(capsys: pytest.CaptureFixture[str]) -> None:
     assert __version__ in capsys.readouterr().out
 
 
-def test_main_manAndSynopsisExitZero(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["--inputDir", ".", "--man"]) == 0
-    assert "examples:" in capsys.readouterr().out
-    assert main(["--inputDir", ".", "--synopsis"]) == 0
-    assert capsys.readouterr().out.startswith("usage:")
+def test_main_inputDirRequiredUnlessManual() -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["--stats"])
+    assert exc.value.code == 2
+
+
+def test_main_manPrintsFullManual(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["--man"]) == 0
+    out: str = capsys.readouterr().out
+    assert "Path-File tree structure" in out
+    assert __version__ in out
+    assert "DESCRIPTION" in out
+    assert "[--fileFilter <token1,token2,...>]" in out
+    assert "glob:*.nii.gz" in out
+    assert "EXAMPLES" in out
+    assert "\033[" not in out
+
+
+def test_main_synopsisPrintsBriefManual(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["--synopsis"]) == 0
+    out: str = capsys.readouterr().out
+    assert "SYNOPSIS" in out
+    assert "BRIEF EXAMPLE" in out
+    assert "DESCRIPTION" not in out
+
+
+def test_main_helpPointsAtMan(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+    assert exc.value.code == 0
+    assert "pftree --man" in capsys.readouterr().out
 
 
 def test_parser_build_dsOmitsIoArguments() -> None:

@@ -7,12 +7,10 @@ can run in a thread pool. Output for a directory goes to the same relative locat
 under the output directory, optionally with a renamed leaf.
 
 Key components:
-    - TreeOptions: every option the engine honours
     - Pftree: the engine; subclass it and override the three ``*_callback`` methods
-    - DirNode: one directory of the tree, with its input path, relative path, files
-      and output path
-    - StageResult: what a callback returns; ProcessResult sums a whole run
-    - StatsResult / DirStat: the ``--stats`` disk-usage report
+    - tree_walk: a depth-bounded ``os.walk`` yielding WalkEntry models
+    - size_format: bytes to a human-readable size
+    - stage_succeeded: the per-stage status rule
 
 Typical usage:
     class Mine(Pftree):
@@ -23,6 +21,7 @@ Typical usage:
 Dependencies:
     - tqdm, for progress bars on the console
     - pftree.filters, for the file and directory filters
+    - pftree.models, for every option and result type
 """
 
 from __future__ import annotations
@@ -32,10 +31,8 @@ import os
 import time
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field, fields
 from functools import partial
 from pathlib import Path, PurePosixPath
-from typing import get_type_hints
 
 from tqdm import tqdm
 
@@ -46,282 +43,29 @@ from pftree.filters import (
     fileNames_filter,
     tokens_parse,
 )
+from pftree.models import (
+    WALK_ALL_DEPTHS,
+    DirNode,
+    DirStat,
+    KeyedResult,
+    ProcessResult,
+    RunResult,
+    StageResult,
+    StatsResult,
+    TreeOptions,
+    WalkEntry,
+)
 
 logger: logging.Logger = logging.getLogger("pftree")
 
-LEAF_PLACEHOLDER: str = "%s"
-WALK_ALL_DEPTHS: int = -1
 TEST_FILELIST_NAME: str = "file-ls.txt"
 TEST_FILECOUNT_NAME: str = "file-count.txt"
 SIZE_UNITS: tuple[str, ...] = ("", "k", "M", "G", "T", "P", "E", "Z")
 SIZE_STEP: float = 1024.0
 
-
-@dataclass
-class TreeOptions:
-    """Every option the engine reads.
-
-    Attributes:
-        inputDir: the directory to walk.
-        outputDir: where per-directory output lands, mirroring the input layout.
-        inputFile: when set, only files whose name contains this text are listed.
-        maxDepth: how many levels below ``inputDir`` to walk; ``-1`` for all.
-        fileFilter: comma-separated file tokens (see ``pftree.filters``).
-        fileFilterLogic: ``AND`` or ``OR`` across the file tokens.
-        dirFilter: comma-separated directory tokens, tested on the relative path.
-        dirFilterLogic: ``AND`` or ``OR`` across the directory tokens.
-        outputLeafDir: a ``%s`` template applied to each output leaf name,
-            e.g. ``"anon-%s"``.
-        relativeDir: key the tree by paths relative to ``inputDir`` instead of
-            the full input path.
-        followLinks: follow symbolic links while walking.
-        overwrite: allow callbacks to overwrite existing output; read by subclasses.
-        threads: workers for the analyze stage; ``0`` runs it sequentially.
-        verbosity: ``0`` silences the console; higher values show more.
-        json: the caller wants machine output, so no progress bars.
-        stats: compute the disk-usage report, largest directory last.
-        statsReverse: compute the report, largest directory first.
-        du: ``du``-style report lines.
-        duf: ``du``-style report lines without console updates.
-        jsonStats: the caller wants the report as JSON.
-        test: run the built-in test callbacks; ``"<seconds>[:<type>]"`` where seconds
-            delays each analyze call and type ``1`` writes a count instead of a listing.
-
-    Example:
-        >>> TreeOptions.fromDict({"inputDir": "/data", "threads": "4", "ignored": 1}).threads
-        4
-    """
-
-    inputDir: Path = Path(".")
-    outputDir: Path = Path(".")
-    inputFile: str = ""
-    maxDepth: int = WALK_ALL_DEPTHS
-    fileFilter: str = ""
-    fileFilterLogic: str = "OR"
-    dirFilter: str = ""
-    dirFilterLogic: str = "OR"
-    outputLeafDir: str = ""
-    relativeDir: bool = False
-    followLinks: bool = False
-    overwrite: bool = False
-    threads: int = 0
-    verbosity: int = 1
-    json: bool = False
-    stats: bool = False
-    statsReverse: bool = False
-    du: bool = False
-    duf: bool = False
-    jsonStats: bool = False
-    test: str = ""
-
-    def __post_init__(self) -> None:
-        """Validate the options that have a fixed grammar.
-
-        Raises:
-            ValueError: for a bad filter logic, a malformed filter token, or an
-                ``outputLeafDir`` without the ``%s`` placeholder.
-        """
-        FilterLogic.parse(self.fileFilterLogic)
-        FilterLogic.parse(self.dirFilterLogic)
-        tokens_parse(self.fileFilter)
-        tokens_parse(self.dirFilter)
-        if self.outputLeafDir and LEAF_PLACEHOLDER not in self.outputLeafDir:
-            raise ValueError(f"outputLeafDir {self.outputLeafDir!r} needs a {LEAF_PLACEHOLDER}")
-
-    @classmethod
-    def fromDict(cls, values: dict[str, object]) -> TreeOptions:
-        """Build options from a loose mapping, such as ``vars(args)``.
-
-        Unknown keys are ignored, so a subclass's larger argument set passes through.
-        Values are coerced to the field's type: paths to ``Path``, numbers to ``int``.
-
-        Args:
-            values: option name to value, strings allowed for paths and numbers.
-
-        Returns:
-            The options with every known key applied.
-        """
-        hints: dict[str, type] = get_type_hints(cls)
-        kwargs: dict[str, object] = {}
-        for item in fields(cls):
-            if item.name not in values:
-                continue
-            raw: object = values[item.name]
-            hint: type = hints[item.name]
-            if hint is Path:
-                kwargs[item.name] = Path(str(raw))
-            elif hint is int:
-                kwargs[item.name] = int(str(raw))
-            elif hint is bool:
-                kwargs[item.name] = bool(raw)
-            else:
-                kwargs[item.name] = str(raw)
-        return cls(**kwargs)  # type: ignore[arg-type]  # keys are validated field names above
-
-
-@dataclass
-class DirNode:
-    """One directory of the tree.
-
-    Attributes:
-        path: the directory as walked, under ``inputDir``.
-        relPath: the directory relative to ``inputDir``, ``"."`` for the root.
-        files: the bare file names kept in this directory, sorted.
-        outputPath: where this directory's output goes, leaf template applied.
-
-    Example:
-        >>> DirNode(Path("/in/a"), "a", ["x.txt"], Path("/out/a")).key(relative=True)
-        'a'
-    """
-
-    path: Path
-    relPath: str
-    files: list[str]
-    outputPath: Path
-
-    def key(self, relative: bool) -> str:
-        """The tree key for this node.
-
-        Args:
-            relative: use the relative path rather than the full input path.
-
-        Returns:
-            The key string.
-        """
-        return self.relPath if relative else str(self.path)
-
-
-@dataclass
-class StageResult:
-    """What one callback returns for one directory.
-
-    Attributes:
-        status: False marks the directory as failed; a failed analyze drops it.
-        files: the file names this stage touched, for the counts in ProcessResult.
-        payload: anything a subclass wants to carry to the next stage.
-
-    Example:
-        >>> StageResult(status=True, files=["a.txt"]).fileCount
-        1
-    """
-
-    status: bool
-    files: list[str] = field(default_factory=list)
-    payload: dict[str, object] = field(default_factory=dict)
-
-    @property
-    def fileCount(self) -> int:
-        """How many files this stage reported."""
-        return len(self.files)
-
-
 ReadCallback = Callable[[DirNode], StageResult]
 AnalyzeCallback = Callable[[DirNode, StageResult], StageResult]
 WriteCallback = Callable[[DirNode, StageResult], StageResult]
-
-
-@dataclass
-class ProcessResult:
-    """The outcome of one ``tree_process`` run.
-
-    Attributes:
-        status: every stage that ran had at least one successful directory.
-        threaded: the analyze stage used a thread pool.
-        dirsProcessed: directories still in the tree when the run ended.
-        filesRead / filesAnalyzed / filesSaved: sums of the stages' file counts.
-        read / analyze / write: per-directory results keyed like the tree.
-
-    Example:
-        >>> ProcessResult(status=True, threaded=False).dirsProcessed
-        0
-    """
-
-    status: bool
-    threaded: bool
-    dirsProcessed: int = 0
-    filesRead: int = 0
-    filesAnalyzed: int = 0
-    filesSaved: int = 0
-    read: dict[str, StageResult] = field(default_factory=dict)
-    analyze: dict[str, StageResult] = field(default_factory=dict)
-    write: dict[str, StageResult] = field(default_factory=dict)
-
-
-@dataclass
-class DirStat:
-    """Disk usage of one directory.
-
-    Attributes:
-        path: the tree key of the directory.
-        files: how many files it holds.
-        sizeBytes: their total size; symbolic links are skipped.
-        sizeHuman: the size as ``"12.3M"``.
-
-    Example:
-        >>> DirStat("a", 1, 2048, size_format(2048)).sizeHuman
-        '2.0kB'
-    """
-
-    path: str
-    files: int
-    sizeBytes: int
-    sizeHuman: str
-
-
-@dataclass
-class StatsResult:
-    """The ``--stats`` report.
-
-    Attributes:
-        dirs: directories counted.
-        files: files counted.
-        totalSize: bytes across the tree.
-        totalSizeHuman: the same, human readable.
-        perDir: one DirStat per directory, sorted by size.
-
-    Example:
-        >>> StatsResult(dirs=0, files=0, totalSize=0, totalSizeHuman="0.0B").perDir
-        []
-    """
-
-    dirs: int
-    files: int
-    totalSize: int
-    totalSizeHuman: str
-    perDir: list[DirStat] = field(default_factory=list)
-
-
-@dataclass
-class RunResult:
-    """Everything ``Pftree.run`` produced.
-
-    Attributes:
-        status: the run succeeded end to end.
-        tree: directory key to sorted file names, after filtering.
-        process: the test run's result, when ``test`` was set.
-        stats: the disk-usage report, when any stats option was set.
-        error: a message when ``status`` is False for an environment reason.
-        runTime: seconds from construction to the end of the run.
-
-    Example:
-        >>> RunResult(status=True, tree={}).runTime
-        0.0
-    """
-
-    status: bool
-    tree: dict[str, list[str]] = field(default_factory=dict)
-    process: ProcessResult | None = None
-    stats: StatsResult | None = None
-    error: str = ""
-    runTime: float = 0.0
-
-    def toDict(self) -> dict[str, object]:
-        """A JSON-ready view of the result.
-
-        Returns:
-            Nested plain dicts and lists; dataclasses expanded.
-        """
-        return asdict(self)
 
 
 def size_format(byteCount: float) -> str:
@@ -341,7 +85,7 @@ def size_format(byteCount: float) -> str:
     return f"{size:.1f}YiB"
 
 
-def tree_walk(root: Path, maxDepth: int, followLinks: bool) -> Iterator[tuple[Path, list[str]]]:
+def tree_walk(root: Path, maxDepth: int, followLinks: bool) -> Iterator[WalkEntry]:
     """Walk a directory to a bounded depth.
 
     Args:
@@ -354,12 +98,27 @@ def tree_walk(root: Path, maxDepth: int, followLinks: bool) -> Iterator[tuple[Pa
     """
     for current, dirNames, fileNames in os.walk(root, followlinks=followLinks):
         currentPath: Path = Path(current)
-        yield currentPath, fileNames
+        yield WalkEntry(path=currentPath, fileNames=list(fileNames))
         if maxDepth == WALK_ALL_DEPTHS:
             continue
         depthHere: int = len(currentPath.parts) - len(root.parts)
         if depthHere >= maxDepth:
             dirNames.clear()
+
+
+def stage_succeeded(results: dict[str, StageResult], enabled: bool) -> bool:
+    """A stage counts as successful when skipped, or when any directory succeeded.
+
+    Args:
+        results: the stage's per-directory results.
+        enabled: whether the stage ran at all.
+
+    Returns:
+        The stage's verdict.
+    """
+    if not enabled:
+        return True
+    return any(result.status for result in results.values())
 
 
 class Pftree:
@@ -373,8 +132,10 @@ class Pftree:
         tree: directory key to sorted file names; filled by ``tree_construct`` and
             pruned by ``tree_filter`` and failed analyze stages.
         nodes: directory key to DirNode, in step with ``tree``.
-        fileTokens / dirTokens: the parsed filters.
-        fileLogic / dirLogic: their combinators.
+        fileTokens: the parsed ``--fileFilter`` tokens.
+        dirTokens: the parsed ``--dirFilter`` tokens.
+        fileLogic: the file filter's combinator.
+        dirLogic: the directory filter's combinator.
         testDelay: seconds the test analyze callback sleeps per directory.
         testType: ``0`` writes a file listing per directory, ``1`` a file count.
 
@@ -462,23 +223,22 @@ class Pftree:
             relative = relative.with_name(leaf)
         return self.options.outputDir / Path(relative)
 
-    def node_build(self, path: Path, fileNames: list[str]) -> DirNode:
+    def node_build(self, entry: WalkEntry) -> DirNode:
         """Turn a walked directory into a DirNode.
 
         Args:
-            path: the directory as walked.
-            fileNames: its file names, unfiltered.
+            entry: the directory and its unfiltered file names.
 
         Returns:
             The node, with ``inputFile`` applied to the file list.
         """
-        relPath: str = PurePosixPath(path.relative_to(self.options.inputDir)).as_posix()
+        relPath: str = PurePosixPath(entry.path.relative_to(self.options.inputDir)).as_posix()
         if relPath == "":
             relPath = "."
-        names: list[str] = sorted(fileNames)
+        names: list[str] = sorted(entry.fileNames)
         if self.options.inputFile:
             names = [name for name in names if self.options.inputFile in name]
-        return DirNode(path=path, relPath=relPath, files=names, outputPath=self.outputPath_for(relPath))
+        return DirNode(path=entry.path, relPath=relPath, files=names, outputPath=self.outputPath_for(relPath))
 
     def tree_probe(self) -> list[DirNode]:
         """Walk ``inputDir`` and describe every directory that holds files.
@@ -487,10 +247,8 @@ class Pftree:
             One DirNode per directory with at least one (``inputFile``-matching) file.
         """
         nodes: list[DirNode] = []
-        for path, fileNames in tree_walk(
-            self.options.inputDir, self.options.maxDepth, self.options.followLinks
-        ):
-            node: DirNode = self.node_build(path, fileNames)
+        for entry in tree_walk(self.options.inputDir, self.options.maxDepth, self.options.followLinks):
+            node: DirNode = self.node_build(entry)
             if node.files:
                 nodes.append(node)
         logger.info("probed %d directories with files under %s", len(nodes), self.options.inputDir)
@@ -628,23 +386,23 @@ class Pftree:
             Analyze results keyed like the tree, failures included.
         """
 
-        def node_analyze(node: DirNode) -> tuple[str, StageResult]:
+        def node_analyze(node: DirNode) -> KeyedResult:
             key: str = self.key_for(node)
             previous: StageResult = readResults.get(key, StageResult(True, node.files))
-            return key, self.stage_guard(key, "analyze", partial(callback, node, previous))
+            return KeyedResult(key, self.stage_guard(key, "analyze", partial(callback, node, previous)))
 
         results: dict[str, StageResult] = {}
         if self.options.threads > 0:
             with ThreadPoolExecutor(max_workers=self.options.threads) as pool:
-                outcomes: Iterable[tuple[str, StageResult]] = pool.map(node_analyze, nodes)
+                outcomes: Iterable[KeyedResult] = pool.map(node_analyze, nodes)
                 if self.console_allowed():
                     outcomes = tqdm(outcomes, total=len(nodes), desc="Analyzing tree")
-                for key, result in outcomes:
-                    results[key] = result
+                for outcome in outcomes:
+                    results[outcome.key] = outcome.result
         else:
             for node in self.progress_wrap(nodes, "Analyzing tree"):
-                key, result = node_analyze(node)
-                results[key] = result
+                outcome = node_analyze(node)
+                results[outcome.key] = outcome.result
         return results
 
     @staticmethod
@@ -765,7 +523,7 @@ class Pftree:
 
         Returns:
             The run's result; ``status`` is False with ``error`` set when the input
-            directory is missing, or when a test run or report failed.
+            directory is missing, or when a test run failed.
         """
         error: str = self.env_check()
         if error:
@@ -793,18 +551,3 @@ class Pftree:
     def runTime_get(self) -> float:
         """Seconds since this engine was constructed."""
         return time.perf_counter() - self.startTime
-
-
-def stage_succeeded(results: dict[str, StageResult], enabled: bool) -> bool:
-    """A stage counts as successful when skipped, or when any directory succeeded.
-
-    Args:
-        results: the stage's per-directory results.
-        enabled: whether the stage ran at all.
-
-    Returns:
-        The stage's verdict.
-    """
-    if not enabled:
-        return True
-    return any(result.status for result in results.values())

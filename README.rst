@@ -39,7 +39,7 @@ Command line
     pftree --inputDir /data --dirFilter 're:/anat$' --json
     pftree --inputDir /data --outputDir /tmp/out --outputLeafDir 'preview-%s' --test 0
 
-``--inputDir`` (required) and ``--outputDir`` name the two trees. ``--maxDepth`` bounds the walk (``-1`` for all levels). ``--relativeDir`` keys the tree by paths relative to the input directory. ``--followLinks`` follows symbolic links. ``--threads N`` runs the analyze stage in a pool of N workers. ``--json`` prints the whole result; ``--stats``, ``--statsReverse``, ``--du``, ``--duf`` and ``--jsonStats`` print the disk-usage report in various shapes. ``--test <seconds>[:<type>]`` runs the built-in callbacks, sleeping per directory and writing a file listing (type 0) or a file count (type 1) into each output directory. ``pftree --man`` shows the full help.
+``pftree --man`` prints the full manual, ``pftree --synopsis`` its first page, ``pftree --help`` argparse's quick reference. ``--inputDir`` (required) and ``--outputDir`` name the two trees. ``--maxDepth`` bounds the walk (``-1`` for all levels). ``--relativeDir`` keys the tree by paths relative to the input directory. ``--followLinks`` follows symbolic links. ``--threads N`` runs the analyze stage in a pool of N workers. ``--json`` prints the whole result; ``--stats``, ``--statsReverse``, ``--du``, ``--duf`` and ``--jsonStats`` print the disk-usage report in various shapes. ``--test <seconds>[:<type>]`` runs the built-in callbacks, sleeping per directory and writing a file listing (type 0) or a file count (type 1) into each output directory.
 
 Filters
 -------
@@ -83,7 +83,7 @@ Library
         outputWrite_callback=engine.outputSave_callback,
     )
 
-``TreeOptions`` holds every option; ``TreeOptions.fromDict(vars(args))`` builds it from an argparse ``Namespace`` and ignores keys it does not know, so a subclass with a larger argument set passes its namespace straight through. ``pftree.__main__`` exposes ``parserCore_build()`` and ``parserSelf_build()`` as parent parsers for packages that add their own input and output arguments.
+Every option and result type lives in ``pftree.models``. ``TreeOptions`` holds every option; ``TreeOptions.fromDict(vars(args))`` builds it from an argparse ``Namespace`` and ignores keys it does not know, so a subclass with a larger argument set passes its namespace straight through. ``pftree.__main__`` exposes ``parserCore_build()`` and ``parserSelf_build()`` as parent parsers, and the ``CLI_*`` and ``ARGS_SYNOPSIS_*`` manual texts, for packages that add their own input and output arguments and compose their own ``--man`` page.
 
 Each callback receives a ``DirNode`` (``path``, ``relPath``, sorted ``files``, ``outputPath``) and returns a ``StageResult`` (``status``, ``files``, ``payload``). Reads and writes run sequentially; analyses run in the thread pool when ``threads`` is positive. A directory whose analyze result has ``status`` False, or whose analyze callback raises, is dropped from the tree before the write stage; the exception is logged with its traceback. ``tree_process`` returns a ``ProcessResult`` with the per-directory results and file counts.
 
