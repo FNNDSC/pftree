@@ -47,6 +47,6 @@ jobs:
       - run: python -m build
       - name: Check the tag matches the package version
         run: |
-          expected="v$(python -c 'import pftree; print(pftree.__version__)')"
+          expected="v$(python -c 'import re, pathlib; print(re.search(r"__version__: str = \"([^\"]+)\"", pathlib.Path("pftree/__init__.py").read_text()).group(1))')"
           test "${GITHUB_REF_NAME}" = "${expected}" || { echo "tag ${GITHUB_REF_NAME} != ${expected}"; exit 1; }
       - uses: pypa/gh-action-pypi-publish@release/v1
