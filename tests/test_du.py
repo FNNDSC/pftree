@@ -198,6 +198,7 @@ def test_scan_splitLevelsMatchSequential(tmp_path: Path, splitDepth: int) -> Non
 
 def test_scan_splitClampsToMaxDepth(tmp_path: Path) -> None:
     inputDir: Path = tree_make(tmp_path)
+    (inputDir / "b/one-again.bin").unlink()  # a hard link shared across subtrees is charged by timing
     sequential = TreeScanner(inputDir, maxDepth=1, followLinks=False).scan()
     scanner = TreeScanner(inputDir, maxDepth=1, followLinks=False, threads=4, splitDepth=3)
     assert scanner.splitDepth == 1
