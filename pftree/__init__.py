@@ -27,7 +27,7 @@ Dependencies:
 
 from __future__ import annotations
 
-__version__: str = "4.1.0"
+__version__: str = "4.1.1"
 
 from pftree.filters import FilterLogic, FilterToken, dirPath_matches, fileNames_filter, tokens_parse
 from pftree.manual import Manual, manual_print, manual_render
