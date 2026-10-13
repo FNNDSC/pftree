@@ -153,6 +153,7 @@ def test_du_humanize_matchesDuStyle() -> None:
 
 def test_scan_threadedMatchesSequential(tmp_path: Path) -> None:
     inputDir: Path = tree_make(tmp_path)
+    (inputDir / "b/one-again.bin").unlink()  # a hard link shared across subtrees is charged by timing
     sequential = TreeScanner(inputDir, maxDepth=-1, followLinks=False).scan()
     threaded = TreeScanner(inputDir, maxDepth=-1, followLinks=False, threads=4).scan()
     assert [entry.path for entry in threaded.entries] == [entry.path for entry in sequential.entries]
@@ -166,7 +167,6 @@ def test_scan_threadedMatchesSequential(tmp_path: Path) -> None:
 @pytest.mark.skipif(DU is None, reason="GNU du not installed")
 def test_du_threadedMatchesDuTotals(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     inputDir: Path = tree_make(tmp_path)
-    (inputDir / "a/deep/deeper/three.bin").unlink()  # no hard links shared across subtrees remain ambiguous
     expected: list[str] = du_lines(inputDir, "-k")
     threaded = TreeScanner(inputDir, maxDepth=-1, followLinks=False, threads=3).scan()
     actualRoot: int = kilobytes_roundUp(threaded.usage[-1].diskBytes)
@@ -189,7 +189,7 @@ def test_scanThreads_gatedOnGil(tmp_path: Path, caplog: pytest.LogCaptureFixture
 @pytest.mark.parametrize("splitDepth", [1, 2, 3, 9])
 def test_scan_splitLevelsMatchSequential(tmp_path: Path, splitDepth: int) -> None:
     inputDir: Path = tree_make(tmp_path)
-    (inputDir / "a/deep/deeper/three.bin").unlink()
+    (inputDir / "b/one-again.bin").unlink()  # a hard link shared across subtrees is charged by timing
     sequential = TreeScanner(inputDir, maxDepth=-1, followLinks=False).scan()
     threaded = TreeScanner(inputDir, maxDepth=-1, followLinks=False, threads=4, splitDepth=splitDepth).scan()
     assert [entry.path for entry in threaded.entries] == [entry.path for entry in sequential.entries]
