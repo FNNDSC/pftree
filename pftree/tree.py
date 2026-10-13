@@ -8,7 +8,10 @@ under the output directory, optionally with a renamed leaf.
 
 Key components:
     - Pftree: the engine; subclass it and override the three ``*_callback`` methods
-    - tree_walk: a depth-bounded ``os.walk`` yielding WalkEntry models
+    - TreeScanner: one ``scandir`` pass yielding entries top-down and ``du`` usage
+      post-order, every entry stat-ed once
+    - tree_walk: the scanner's entries as an iterator
+    - du_humanize, kilobytes_roundUp: ``du``'s number formats
     - size_format: bytes to a human-readable size
     - stage_succeeded: the per-stage status rule
 
@@ -47,12 +50,17 @@ from pftree.models import (
     WALK_ALL_DEPTHS,
     DirNode,
     DirStat,
+    DirUsage,
+    DuLine,
+    DuReport,
+    FileSize,
     KeyedResult,
     ProcessResult,
     RunResult,
     StageResult,
     StatsResult,
     TreeOptions,
+    TreeScan,
     WalkEntry,
 )
 
@@ -62,6 +70,9 @@ TEST_FILELIST_NAME: str = "file-ls.txt"
 TEST_FILECOUNT_NAME: str = "file-count.txt"
 SIZE_UNITS: tuple[str, ...] = ("", "k", "M", "G", "T", "P", "E", "Z")
 SIZE_STEP: float = 1024.0
+BLOCK_BYTES: int = 512
+KILOBYTE: int = 1024
+DU_UNITS: tuple[str, ...] = ("", "K", "M", "G", "T", "P", "E")
 
 ReadCallback = Callable[[DirNode], StageResult]
 AnalyzeCallback = Callable[[DirNode, StageResult], StageResult]
@@ -85,6 +96,162 @@ def size_format(byteCount: float) -> str:
     return f"{size:.1f}YiB"
 
 
+def fileSize_fromStat(status: os.stat_result, isLink: bool = False) -> FileSize:
+    """Read the two sizes out of a stat result.
+
+    Args:
+        status: an ``lstat`` result.
+        isLink: the entry is a symbolic link.
+
+    Returns:
+        The apparent and disk sizes.
+    """
+    return FileSize(apparentBytes=status.st_size, diskBytes=status.st_blocks * BLOCK_BYTES, isLink=isLink)
+
+
+def entry_pointsToDir(entry: os.DirEntry[str]) -> bool:
+    """Whether an entry is, or links to, a directory.
+
+    Args:
+        entry: a scandir entry.
+
+    Returns:
+        True for a directory or a symbolic link to one; False for anything else,
+        including a link that cannot be resolved (a loop, a dangling target).
+    """
+    try:
+        return entry.is_dir()
+    except OSError:
+        return False
+
+
+class TreeScanner:
+    """One pass over a directory tree: entries top-down, usage post-order.
+
+    Every entry is ``lstat``-ed once, through ``os.scandir``, during the walk; nothing
+    is revisited. Hard-linked files count once towards usage, as ``du`` counts them.
+
+    Attributes:
+        root: where the scan starts.
+        maxDepth: levels below ``root`` to descend; ``-1`` for all, ``0`` for root only.
+        followLinks: descend into symbolic links to directories, each target once.
+        entries: the directories in scan order, filled by ``scan``.
+        usage: the directories in post-order with the root last, filled by ``scan``.
+        seenInodes: ``(st_dev, st_ino)`` of hard-linked files already counted.
+        seenDirs: ``(st_dev, st_ino)`` of directories entered through links.
+
+    Example:
+        >>> scan = TreeScanner(Path("."), maxDepth=0, followLinks=False).scan()
+        >>> scan.usage[-1].path
+        PosixPath('.')
+    """
+
+    def __init__(self, root: Path, maxDepth: int, followLinks: bool) -> None:
+        self.root: Path = root
+        self.maxDepth: int = maxDepth
+        self.followLinks: bool = followLinks
+        self.entries: list[WalkEntry] = []
+        self.usage: list[DirUsage] = []
+        self.seenInodes: set[tuple[int, int]] = set()
+        self.seenDirs: set[tuple[int, int]] = set()
+
+    def scan(self) -> TreeScan:
+        """Run the scan.
+
+        Returns:
+            The entries and the usage lines.
+        """
+        rootStatus: os.stat_result = os.lstat(self.root)
+        if self.followLinks:
+            self.seenDirs.add((rootStatus.st_dev, rootStatus.st_ino))
+        self.dir_scan(self.root, fileSize_fromStat(rootStatus), depth=0)
+        return TreeScan(entries=self.entries, usage=self.usage)
+
+    def dir_scan(self, path: Path, dirSize: FileSize, depth: int) -> DirUsage:
+        """Scan one directory and, within the depth bound, everything below it.
+
+        Args:
+            path: the directory.
+            dirSize: its own sizes, from the parent's ``lstat`` of it.
+            depth: how many levels below the root it sits.
+
+        Entries are handled in directory order, descending into a subdirectory the
+        moment it is met, which is the order ``du`` charges hard links in.
+
+        Returns:
+            The directory's cumulative usage; also appended to ``usage`` after the
+            usage of every subdirectory.
+        """
+        fileNames: list[str] = []
+        fileSizes: dict[str, FileSize] = {}
+        diskBytes: int = dirSize.diskBytes
+        apparentBytes: int = 0  # du --apparent-size gives a directory itself no size
+        descend: bool = self.maxDepth == WALK_ALL_DEPTHS or depth < self.maxDepth
+        self.entries.append(WalkEntry(path=path, fileNames=fileNames, fileSizes=fileSizes, dirSize=dirSize))
+        try:
+            with os.scandir(path) as listing:
+                for entry in listing:
+                    try:
+                        status: os.stat_result = entry.stat(follow_symlinks=False)
+                        isLink: bool = entry.is_symlink()
+                        isDir: bool = entry.is_dir(follow_symlinks=self.followLinks)
+                    except OSError as err:
+                        logger.warning("cannot stat %s: %s", entry.path, err.strerror)
+                        continue
+                    if isDir and self.dir_enterable(entry, isLink):
+                        if descend:
+                            below: DirUsage = self.dir_scan(
+                                Path(entry.path), fileSize_fromStat(status, isLink), depth + 1
+                            )
+                            diskBytes += below.diskBytes
+                            apparentBytes += below.apparentBytes
+                        continue
+                    size: FileSize = fileSize_fromStat(status, isLink)
+                    fileSizes[entry.name] = size
+                    if not entry_pointsToDir(entry):
+                        fileNames.append(entry.name)
+                    if status.st_nlink > 1 and not isLink:
+                        inode: tuple[int, int] = (status.st_dev, status.st_ino)
+                        if inode in self.seenInodes:
+                            continue
+                        self.seenInodes.add(inode)
+                    diskBytes += size.diskBytes
+                    apparentBytes += size.apparentBytes
+        except OSError as err:
+            logger.warning("cannot read %s: %s", path, err.strerror)
+        usage: DirUsage = DirUsage(path=path, diskBytes=diskBytes, apparentBytes=apparentBytes)
+        self.usage.append(usage)
+        return usage
+
+    def dir_enterable(self, entry: os.DirEntry[str], isLink: bool) -> bool:
+        """Whether a directory entry should be descended into.
+
+        A real directory always is. A symbolic link to a directory is entered only
+        with ``followLinks``, and only the first time its target is met.
+
+        Args:
+            entry: the scandir entry.
+            isLink: the entry is a symbolic link.
+
+        Returns:
+            True to descend.
+        """
+        if not isLink:
+            return True
+        if not self.followLinks:
+            return False
+        try:
+            target: os.stat_result = entry.stat(follow_symlinks=True)
+        except OSError as err:
+            logger.warning("cannot follow %s: %s", entry.path, err.strerror)
+            return False
+        inode: tuple[int, int] = (target.st_dev, target.st_ino)
+        if inode in self.seenDirs:
+            return False
+        self.seenDirs.add(inode)
+        return True
+
+
 def tree_walk(root: Path, maxDepth: int, followLinks: bool) -> Iterator[WalkEntry]:
     """Walk a directory to a bounded depth.
 
@@ -94,16 +261,47 @@ def tree_walk(root: Path, maxDepth: int, followLinks: bool) -> Iterator[WalkEntr
         followLinks: follow symbolic links to directories.
 
     Yields:
-        Each directory and its file names, root first, as ``os.walk`` orders them.
+        Each directory and its file names, root first, in scan order.
     """
-    for current, dirNames, fileNames in os.walk(root, followlinks=followLinks):
-        currentPath: Path = Path(current)
-        yield WalkEntry(path=currentPath, fileNames=list(fileNames))
-        if maxDepth == WALK_ALL_DEPTHS:
-            continue
-        depthHere: int = len(currentPath.parts) - len(root.parts)
-        if depthHere >= maxDepth:
-            dirNames.clear()
+    yield from TreeScanner(root, maxDepth, followLinks).scan().entries
+
+
+def kilobytes_roundUp(byteCount: int) -> int:
+    """Bytes to 1024-byte units, rounded up as ``du -k`` rounds.
+
+    Args:
+        byteCount: a size in bytes.
+
+    Returns:
+        The size in kilobytes.
+    """
+    return -(-byteCount // KILOBYTE)
+
+
+def du_humanize(byteCount: int) -> str:
+    """Render a size the way ``du -h`` does.
+
+    Args:
+        byteCount: a size in bytes.
+
+    Returns:
+        ``"0"``, ``"4.0K"``, ``"12K"``, ``"1.5M"``, ``"3.0G"``: one decimal below 10,
+        none above, rounded up, in powers of 1024.
+    """
+    if byteCount == 0:
+        return "0"
+    unitIndex: int = 0
+    scale: int = 1
+    while byteCount >= scale * KILOBYTE and unitIndex < len(DU_UNITS) - 1:
+        scale *= KILOBYTE
+        unitIndex += 1
+    unit: str = DU_UNITS[unitIndex]
+    if unitIndex == 0:
+        return f"{byteCount}{unit}"
+    tenths: int = -(-byteCount * 10 // scale)
+    if tenths < 100:
+        return f"{tenths // 10}.{tenths % 10}{unit}"
+    return f"{-(-byteCount // scale)}{unit}"
 
 
 def stage_succeeded(results: dict[str, StageResult], enabled: bool) -> bool:
@@ -132,6 +330,7 @@ class Pftree:
         tree: directory key to sorted file names; filled by ``tree_construct`` and
             pruned by ``tree_filter`` and failed analyze stages.
         nodes: directory key to DirNode, in step with ``tree``.
+        usage: every scanned directory's cumulative usage, post-order, root last.
         fileTokens: the parsed ``--fileFilter`` tokens.
         dirTokens: the parsed ``--dirFilter`` tokens.
         fileLogic: the file filter's combinator.
@@ -149,6 +348,7 @@ class Pftree:
         self.options: TreeOptions = options
         self.tree: dict[str, list[str]] = {}
         self.nodes: dict[str, DirNode] = {}
+        self.usage: list[DirUsage] = []
         self.fileTokens: list[FilterToken] = tokens_parse(options.fileFilter)
         self.dirTokens: list[FilterToken] = tokens_parse(options.dirFilter)
         self.fileLogic: FilterLogic = FilterLogic.parse(options.fileFilterLogic)
@@ -238,21 +438,50 @@ class Pftree:
         names: list[str] = sorted(entry.fileNames)
         if self.options.inputFile:
             names = [name for name in names if self.options.inputFile in name]
-        return DirNode(path=entry.path, relPath=relPath, files=names, outputPath=self.outputPath_for(relPath))
+        return DirNode(
+            path=entry.path,
+            relPath=relPath,
+            files=names,
+            outputPath=self.outputPath_for(relPath),
+            fileSizes=entry.fileSizes,
+        )
 
     def tree_probe(self) -> list[DirNode]:
-        """Walk ``inputDir`` and describe every directory that holds files.
+        """Scan ``inputDir`` once and describe every directory that holds files.
+
+        The scan's usage lines are kept in ``usage`` for the ``du`` report.
 
         Returns:
             One DirNode per directory with at least one (``inputFile``-matching) file.
         """
+        scan: TreeScan = TreeScanner(
+            self.options.inputDir, self.options.maxDepth, self.options.followLinks
+        ).scan()
+        self.usage = scan.usage
         nodes: list[DirNode] = []
-        for entry in tree_walk(self.options.inputDir, self.options.maxDepth, self.options.followLinks):
+        for entry in scan.entries:
             node: DirNode = self.node_build(entry)
             if node.files:
                 nodes.append(node)
         logger.info("probed %d directories with files under %s", len(nodes), self.options.inputDir)
         return nodes
+
+    def du_compute(self) -> DuReport:
+        """The ``du`` report from the last scan.
+
+        Returns:
+            One line per directory scanned, post-order with the root last, in
+            kilobytes of disk blocks, or of apparent size with ``apparentSize``.
+        """
+        apparent: bool = self.options.apparentSize
+        lines: list[DuLine] = [
+            DuLine(
+                kilobytes=kilobytes_roundUp(usage.apparentBytes if apparent else usage.diskBytes),
+                path=str(usage.path),
+            )
+            for usage in self.usage
+        ]
+        return DuReport(lines=lines, apparent=apparent)
 
     def tree_construct(self, nodes: list[DirNode]) -> int:
         """Fill ``tree`` and ``nodes`` from probed directories.
@@ -434,9 +663,9 @@ class Pftree:
         for key, node in self.nodes.items():
             sizeBytes: int = 0
             for name in node.files:
-                filePath: Path = node.path / name
-                if not filePath.is_symlink():
-                    sizeBytes += filePath.stat().st_size
+                size: FileSize | None = node.fileSizes.get(name)
+                if size is not None and not size.isLink:
+                    sizeBytes += size.apparentBytes
             perDir.append(DirStat(key, len(node.files), sizeBytes, size_format(sizeBytes)))
         perDir.sort(key=lambda stat: stat.sizeBytes, reverse=self.options.statsReverse)
         totalSize: int = sum(stat.sizeBytes for stat in perDir)
@@ -514,9 +743,13 @@ class Pftree:
         return ""
 
     def stats_wanted(self) -> bool:
-        """Whether any option asked for the disk-usage report."""
+        """Whether any option asked for the per-directory report."""
         opts: TreeOptions = self.options
-        return opts.stats or opts.statsReverse or opts.du or opts.duf or opts.jsonStats
+        return opts.stats or opts.statsReverse or opts.jsonStats
+
+    def du_wanted(self) -> bool:
+        """Whether ``--du`` or ``--duf`` asked for the ``du`` report."""
+        return self.options.du or self.options.duf
 
     def run(self) -> RunResult:
         """Probe, construct, filter, then test and report as the options ask.
@@ -540,11 +773,13 @@ class Pftree:
             status = status and process.status
         if self.stats_wanted():
             stats = self.stats_compute()
+        du: DuReport | None = self.du_compute() if self.du_wanted() else None
         return RunResult(
             status=status,
             tree=dict(self.tree),
             process=process,
             stats=stats,
+            du=du,
             runTime=self.runTime_get(),
         )
 

@@ -37,8 +37,8 @@ import sys
 from collections.abc import Sequence
 
 from pftree import __version__
-from pftree.models import RunResult, StatsResult, TreeOptions
-from pftree.tree import Pftree
+from pftree.models import DuReport, RunResult, StatsResult, TreeOptions
+from pftree.tree import KILOBYTE, Pftree, du_humanize
 
 NO_COLOUR: str = "\033[0m"
 BG_PAGE: str = "\033[40m"
@@ -140,32 +140,44 @@ CLI_CORE: str = """
 """
 
 CLI_SELF: str = """
-        [--stats | --statsReverse | --du | --duf]                               \\
-        [--jsonStats]                                                           \\
+        [--stats | --statsReverse | --jsonStats]                                \\
+        [--du | --duf] [--apparentSize]                                         \\
         [--test <analysisDelayLength[:<type>]>]                                 \\"""
 
 ARGS_SYNOPSIS_SELF: str = """
-        [--stats | --statsReverse | --du | --duf]
-        If specified, return some stats to caller. The amount of information
-        returned depends on the --verbosity.
+        [--stats | --statsReverse]
+        If specified, report on every directory in the tree that holds files:
+        how many files it holds and their apparent size, one line per
+        directory sorted by size (largest last, or first with
+        --statsReverse), followed by the totals. Sizes count only the files
+        kept by any --fileFilter / --dirFilter, so
 
-        For --stats (and --statsReverse):
+            --fileFilter 'glob:*.nii.gz' --stats
 
-            * --verbosity 0: return only a final summary of group statistics
-            * --verbosity 1: in addition, return a sorted (by size) list of
-                             subdirectories in the search tree
-            * --verbosity >1: same as above, but provide probing status updates.
-
-        For --du | --duf
-
-            similar to '--stats' but return directory lists in a fashion similar
-            to the GNU 'du' tool:
-
-            * --du : the sorted list and a summary
-            * --duf: the sorted list only
+        answers "where are the NIfTI files, and how big are they".
 
         [--jsonStats]
         If specified, do a JSON dump of the stats.
+
+        [--du | --duf]
+        Print what GNU du prints. --du is 'du -k': one line per directory,
+        the cumulative size in kilobytes, a tab, the path; every directory
+        under the <inputDir> appears, children before parents, the
+        <inputDir> last. The output is byte-for-byte what du would print, so
+        it pipes into tools that read du:
+
+            pftree --du --inputDir /data | xdu
+            pftree --du --inputDir /data | sort -n | tail
+
+        --duf is 'du -h': the same lines with human-readable sizes. Sizes are
+        disk blocks (st_blocks), hard links are counted once, symbolic links
+        count as themselves, and filters do not apply (du has none). With
+        --maxDepth the deeper levels are not scanned, so the totals exclude
+        them.
+
+        [--apparentSize]
+        With --du or --duf, count each entry's st_size instead of its disk
+        blocks, as 'du --apparent-size' does.
 
         [--test <analysisDelayLength[:<type>]>]
         If specified, perform a test/dummy run through the
@@ -344,9 +356,11 @@ EXAMPLES: str = """
                         --stats --verbosity 0 --json
 
     which will output only at script conclusion and will log a JSON formatted
-    string. Similarly
+    string.
 
-        pftree          --du --inputDir /var/www/html
+    * Disk usage exactly as du reports it, into xdu:
+
+        pftree          --du --inputDir /var/www/html | xdu
 
     * Keep only the gzipped NIfTI files that are not temporaries, in anat
       directories:
@@ -639,8 +653,16 @@ def parserSelf_build() -> argparse.ArgumentParser:
     parser.add_argument(
         "--statsReverse", dest="statsReverse", action="store_true", help="disk usage, largest first"
     )
-    parser.add_argument("--du", dest="du", action="store_true", help="du-style lines plus a summary")
-    parser.add_argument("--duf", dest="duf", action="store_true", help="du-style lines, no summary")
+    parser.add_argument(
+        "--du", dest="du", action="store_true", help="print what 'du -k' prints; pipe into xdu"
+    )
+    parser.add_argument("--duf", dest="duf", action="store_true", help="print what 'du -h' prints")
+    parser.add_argument(
+        "--apparentSize",
+        dest="apparentSize",
+        action="store_true",
+        help="du counts st_size, like du --apparent-size",
+    )
     parser.add_argument("--jsonStats", dest="jsonStats", action="store_true", help="print the stats as JSON")
     parser.add_argument(
         "--test",
@@ -695,37 +717,47 @@ def logging_configure(verbosity: int) -> None:
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
 
 
-def stats_render(stats: StatsResult, duStyle: bool, summary: bool) -> str:
-    """Format the disk-usage report.
+def du_render(report: DuReport, human: bool) -> str:
+    """Format the ``du`` report exactly as ``du`` would.
+
+    Args:
+        report: the lines, post-order, root last.
+        human: ``du -h`` sizes instead of ``du -k`` kilobytes.
+
+    Returns:
+        ``<size>\\t<path>`` per line.
+    """
+    lines: list[str] = []
+    for line in report.lines:
+        size: str = du_humanize(line.kilobytes * KILOBYTE) if human else str(line.kilobytes)
+        lines.append(f"{size}\t{line.path}")
+    return "\n".join(lines)
+
+
+def stats_render(stats: StatsResult) -> str:
+    """Format the per-directory report.
 
     Args:
         stats: the report to render.
-        duStyle: ``<size>  <path>`` lines like ``du -h``; else a wider table.
-        summary: append the totals block.
 
     Returns:
-        The report text, lines joined with newlines.
+        One table line per directory, then the totals block.
     """
-    lines: list[str] = []
-    for stat in stats.perDir:
-        if duStyle:
-            lines.append(f"{stat.sizeHuman:<10}{stat.path}")
-        else:
-            lines.append(
-                f"files: {stat.files:5d}│ raw_size: {stat.sizeBytes:12d}│ "
-                f"human_size: {stat.sizeHuman:>8}│ dir: {stat.path}"
-            )
-    if summary:
-        lines.extend(
-            [
-                "",
-                f"Total size (raw):        {stats.totalSize}",
-                f"Total size (friendly):   {stats.totalSize:,}",
-                f"Total size (human):      {stats.totalSizeHuman}",
-                f"Total files:             {stats.files}",
-                f"Total dirs:              {stats.dirs}",
-            ]
-        )
+    lines: list[str] = [
+        f"files: {stat.files:5d}│ raw_size: {stat.sizeBytes:12d}│ "
+        f"human_size: {stat.sizeHuman:>8}│ dir: {stat.path}"
+        for stat in stats.perDir
+    ]
+    lines.extend(
+        [
+            "",
+            f"Total size (raw):        {stats.totalSize}",
+            f"Total size (friendly):   {stats.totalSize:,}",
+            f"Total size (human):      {stats.totalSizeHuman}",
+            f"Total files:             {stats.files}",
+            f"Total dirs:              {stats.dirs}",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -739,12 +771,13 @@ def result_report(args: argparse.Namespace, result: RunResult) -> None:
     if args.json:
         print(json.dumps(result.toDict(), indent=4, sort_keys=True))
         return
+    if result.du is not None:
+        print(du_render(result.du, human=args.duf))
     if result.stats is not None:
         if args.jsonStats:
             print(json.dumps(result.toDict()["stats"], indent=4, sort_keys=True))
         else:
-            duStyle: bool = args.du or args.duf
-            print(stats_render(result.stats, duStyle=duStyle, summary=not args.duf))
+            print(stats_render(result.stats))
     if args.printElapsedTime:
         print(f"Elapsed time = {result.runTime:.6f} seconds")
 

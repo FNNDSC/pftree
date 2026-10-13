@@ -1,0 +1,141 @@
+"""Tests for the ``du`` report: it must print what GNU du prints."""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from pftree.__main__ import main
+from pftree.models import TreeOptions
+from pftree.tree import Pftree, TreeScanner, du_humanize, kilobytes_roundUp
+
+DU: str | None = shutil.which("du")
+
+
+def tree_make(root: Path) -> Path:
+    """A tree with nesting, an empty directory, a hard link and a symlink."""
+    inputDir: Path = root / "in"
+    for rel in ("a/deep/deeper", "b", "empty"):
+        (inputDir / rel).mkdir(parents=True)
+    (inputDir / "top.bin").write_bytes(os.urandom(5000))
+    (inputDir / "a/one.bin").write_bytes(os.urandom(70000))
+    (inputDir / "a/deep/two.bin").write_bytes(os.urandom(1234))
+    (inputDir / "a/deep/deeper/three.bin").write_bytes(os.urandom(300000))
+    (inputDir / "b/four.bin").write_bytes(os.urandom(9000))
+    os.link(inputDir / "a/one.bin", inputDir / "b/one-again.bin")
+    (inputDir / "b/link").symlink_to(inputDir / "a/one.bin")
+    return inputDir
+
+
+def du_lines(inputDir: Path, *flags: str) -> list[str]:
+    assert DU is not None
+    completed = subprocess.run([DU, *flags, str(inputDir)], capture_output=True, text=True, check=True)
+    return completed.stdout.splitlines()
+
+
+def pftree_lines(inputDir: Path, *flags: str, capsys: pytest.CaptureFixture[str]) -> list[str]:
+    assert main(["--inputDir", str(inputDir), "--verbosity", "0", *flags]) == 0
+    return capsys.readouterr().out.splitlines()
+
+
+@pytest.mark.skipif(DU is None, reason="GNU du not installed")
+def test_du_matchesDuK(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    expected: list[str] = du_lines(inputDir, "-k")
+    actual: list[str] = pftree_lines(inputDir, "--du", capsys=capsys)
+    assert sorted(actual) == sorted(expected)
+    assert actual[-1] == expected[-1]
+
+
+@pytest.mark.skipif(DU is None, reason="GNU du not installed")
+def test_du_apparentSizeMatchesDu(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    expected: list[str] = du_lines(inputDir, "-k", "--apparent-size")
+    actual: list[str] = pftree_lines(inputDir, "--du", "--apparentSize", capsys=capsys)
+    assert sorted(actual) == sorted(expected)
+
+
+@pytest.mark.skipif(DU is None, reason="GNU du not installed")
+def test_duf_matchesDuH(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    expected: list[str] = du_lines(inputDir, "-h")
+    actual: list[str] = pftree_lines(inputDir, "--duf", capsys=capsys)
+    assert sorted(actual) == sorted(expected)
+
+
+@pytest.mark.skipif(DU is None, reason="GNU du not installed")
+def test_duf_apparentMatchesDuH(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    expected: list[str] = du_lines(inputDir, "-h", "--apparent-size")
+    actual: list[str] = pftree_lines(inputDir, "--duf", "--apparentSize", capsys=capsys)
+    assert sorted(actual) == sorted(expected)
+
+
+@pytest.mark.skipif(DU is None, reason="GNU du not installed")
+def test_du_followLinksMatchesDuL(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    elsewhere: Path = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "x.bin").write_bytes(os.urandom(20000))
+    (inputDir / "linked").symlink_to(elsewhere, target_is_directory=True)
+    expected: list[str] = du_lines(inputDir, "-k", "-L")
+    actual: list[str] = pftree_lines(inputDir, "--du", "--followLinks", capsys=capsys)
+    assert sorted(actual) == sorted(expected)
+
+
+def test_scan_postOrderRootLastAndEveryDir(tmp_path: Path) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    scan = TreeScanner(inputDir, maxDepth=-1, followLinks=False).scan()
+    paths: list[str] = [str(usage.path.relative_to(inputDir)) for usage in scan.usage]
+    assert paths[-1] == "."
+    assert "empty" in paths
+    assert paths.index("a/deep/deeper") < paths.index("a/deep") < paths.index("a")
+    assert len(scan.entries) == len(scan.usage) == 6
+
+
+def test_scan_hardLinkCountedOnce(tmp_path: Path) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    scan = TreeScanner(inputDir, maxDepth=-1, followLinks=False).scan()
+    root = scan.usage[-1]
+    fileBytes: int = sum(
+        size.apparentBytes for entry in scan.entries for size in entry.fileSizes.values() if not size.isLink
+    )
+    assert root.apparentBytes < fileBytes
+
+
+def test_scan_maxDepthExcludesDeeperLevels(tmp_path: Path) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    full = TreeScanner(inputDir, maxDepth=-1, followLinks=False).scan().usage[-1]
+    shallow = TreeScanner(inputDir, maxDepth=1, followLinks=False).scan().usage[-1]
+    assert shallow.apparentBytes < full.apparentBytes
+
+
+def test_stats_usesScanSizes(tmp_path: Path) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    result = Pftree(TreeOptions(inputDir=inputDir, relativeDir=True, stats=True, verbosity=0)).run()
+    assert result.stats is not None
+    bStat = next(stat for stat in result.stats.perDir if stat.path == "b")
+    assert bStat.files == 3
+    assert bStat.sizeBytes == 9000 + 70000
+
+
+def test_kilobytes_roundUp() -> None:
+    assert kilobytes_roundUp(0) == 0
+    assert kilobytes_roundUp(1) == 1
+    assert kilobytes_roundUp(1024) == 1
+    assert kilobytes_roundUp(1025) == 2
+
+
+def test_du_humanize_matchesDuStyle() -> None:
+    assert du_humanize(0) == "0"
+    assert du_humanize(512) == "512"
+    assert du_humanize(4096) == "4.0K"
+    assert du_humanize(12 * 1024) == "12K"
+    assert du_humanize(1536 * 1024) == "1.5M"
+    assert du_humanize(1500 * 1024) == "1.5M"
+    assert du_humanize(3 * 1024**3) == "3.0G"
+    assert du_humanize(10 * 1024 - 1) == "10K"

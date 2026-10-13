@@ -32,19 +32,28 @@ from pftree.filters import FilterLogic, FilterToken, dirPath_matches, fileNames_
 from pftree.models import (
     DirNode,
     DirStat,
+    DirUsage,
+    DuLine,
+    DuReport,
+    FileSize,
     KeyedResult,
     ProcessResult,
     RunResult,
     StageResult,
     StatsResult,
     TreeOptions,
+    TreeScan,
     WalkEntry,
 )
-from pftree.tree import Pftree
+from pftree.tree import Pftree, TreeScanner
 
 __all__ = [
     "DirNode",
     "DirStat",
+    "DirUsage",
+    "DuLine",
+    "DuReport",
+    "FileSize",
     "FilterLogic",
     "FilterToken",
     "KeyedResult",
@@ -54,6 +63,8 @@ __all__ = [
     "StageResult",
     "StatsResult",
     "TreeOptions",
+    "TreeScan",
+    "TreeScanner",
     "WalkEntry",
     "__version__",
     "dirPath_matches",

@@ -58,11 +58,15 @@ def test_main_statsPrintsReport(tmp_path: Path, capsys: pytest.CaptureFixture[st
     assert "Total files:             2" in out
 
 
-def test_main_dufPrintsLinesOnly(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    main(["--inputDir", str(tree_make(tmp_path)), "--relativeDir", "--duf", "--verbosity", "0"])
-    out: str = capsys.readouterr().out
-    assert out.startswith("30.0B")
-    assert "Total" not in out
+def test_main_duPrintsDuLines(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    main(["--inputDir", str(inputDir), "--du", "--verbosity", "0"])
+    lines: list[str] = capsys.readouterr().out.splitlines()
+    assert len(lines) == 2
+    assert lines[0].endswith(f"\t{inputDir / 'a'}")
+    assert lines[1].endswith(f"\t{inputDir}")
+    assert all(line.split("\t")[0].isdigit() for line in lines)
+    assert "Total" not in "\n".join(lines)
 
 
 def test_main_jsonStats(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

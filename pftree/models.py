@@ -58,10 +58,12 @@ class TreeOptions:
         threads: workers for the analyze stage; ``0`` runs it sequentially.
         verbosity: ``0`` silences the console; higher values show more.
         json: the caller wants machine output, so no progress bars.
-        stats: compute the disk-usage report, largest directory last.
+        stats: compute the per-directory report, largest directory last.
         statsReverse: compute the report, largest directory first.
-        du: ``du``-style report lines.
-        duf: ``du``-style report lines without the summary.
+        du: emit what ``du -k`` prints: cumulative kilobytes per directory.
+        duf: emit what ``du -h`` prints: the same, human readable.
+        apparentSize: ``du`` counts ``st_size`` instead of disk blocks, like
+            ``du --apparent-size``.
         jsonStats: the caller wants the report as JSON.
         test: run the built-in test callbacks; ``"<seconds>[:<type>]"`` where seconds
             delays each analyze call and type ``1`` writes a count instead of a listing.
@@ -90,6 +92,7 @@ class TreeOptions:
     statsReverse: bool = False
     du: bool = False
     duf: bool = False
+    apparentSize: bool = False
     jsonStats: bool = False
     test: str = ""
 
@@ -138,21 +141,117 @@ class TreeOptions:
         return cls(**kwargs)  # type: ignore[arg-type]  # keys are validated field names above
 
 
+@dataclass(slots=True)
+class FileSize:
+    """The two sizes of one filesystem entry, from a single ``lstat``.
+
+    Attributes:
+        apparentBytes: ``st_size``, what ``du --apparent-size`` counts.
+        diskBytes: ``st_blocks * 512``, what ``du`` counts.
+        isLink: the entry is a symbolic link; the sizes are the link's own.
+
+    Example:
+        >>> FileSize(apparentBytes=10, diskBytes=4096).diskBytes
+        4096
+    """
+
+    apparentBytes: int
+    diskBytes: int
+    isLink: bool = False
+
+
 @dataclass
 class WalkEntry:
-    """One directory as the walk yields it.
+    """One directory as the scan yields it.
 
     Attributes:
         path: the directory.
-        fileNames: the names of the files directly inside it, unfiltered.
+        fileNames: the names of the entries directly inside it that are not
+            directories, unfiltered.
+        fileSizes: each of those names to its sizes.
+        dirSize: the directory's own sizes.
 
     Example:
-        >>> WalkEntry(Path("/in/a"), ["x.txt"]).fileNames
+        >>> WalkEntry(Path("/in/a"), ["x.txt"], {}, FileSize(0, 0)).fileNames
         ['x.txt']
     """
 
     path: Path
     fileNames: list[str]
+    fileSizes: dict[str, FileSize]
+    dirSize: FileSize
+
+
+@dataclass
+class DirUsage:
+    """The cumulative usage of one directory, as ``du`` reports it.
+
+    Attributes:
+        path: the directory, as walked.
+        diskBytes: ``st_blocks * 512`` summed over the directory, its files and
+            everything below it, hard links counted once.
+        apparentBytes: ``st_size`` summed the same way.
+
+    Example:
+        >>> DirUsage(Path("/in"), diskBytes=8192, apparentBytes=100).diskBytes
+        8192
+    """
+
+    path: Path
+    diskBytes: int
+    apparentBytes: int
+
+
+@dataclass
+class TreeScan:
+    """Everything one pass over the input directory produced.
+
+    Attributes:
+        entries: one WalkEntry per directory, top-down in scan order.
+        usage: one DirUsage per directory, post-order with the root last, which is
+            the order ``du`` prints.
+
+    Example:
+        >>> TreeScan(entries=[], usage=[]).entries
+        []
+    """
+
+    entries: list[WalkEntry]
+    usage: list[DirUsage]
+
+
+@dataclass
+class DuLine:
+    """One line of the ``du`` report.
+
+    Attributes:
+        kilobytes: the directory's cumulative size in 1024-byte units, rounded up.
+        path: the directory, as walked.
+
+    Example:
+        >>> DuLine(kilobytes=4, path="/in/a").kilobytes
+        4
+    """
+
+    kilobytes: int
+    path: str
+
+
+@dataclass
+class DuReport:
+    """The ``--du`` report: what ``du -k`` prints, in its order.
+
+    Attributes:
+        lines: one DuLine per directory, post-order, root last.
+        apparent: the sizes are apparent (``st_size``) rather than disk blocks.
+
+    Example:
+        >>> DuReport(lines=[], apparent=False).lines
+        []
+    """
+
+    lines: list[DuLine]
+    apparent: bool
 
 
 @dataclass
@@ -164,6 +263,8 @@ class DirNode:
         relPath: the directory relative to ``inputDir``, ``"."`` for the root.
         files: the bare file names kept in this directory, sorted.
         outputPath: where this directory's output goes, leaf template applied.
+        fileSizes: every file name the scan saw in this directory to its sizes,
+            including names later removed by a filter.
 
     Example:
         >>> DirNode(Path("/in/a"), "a", ["x.txt"], Path("/out/a")).key(relative=True)
@@ -174,6 +275,7 @@ class DirNode:
     relPath: str
     files: list[str]
     outputPath: Path
+    fileSizes: dict[str, FileSize] = field(default_factory=dict)
 
     def key(self, relative: bool) -> str:
         """The tree key for this node.
@@ -314,7 +416,8 @@ class RunResult:
         status: the run succeeded end to end.
         tree: directory key to sorted file names, after filtering.
         process: the test run's result, when ``test`` was set.
-        stats: the disk-usage report, when any stats option was set.
+        stats: the per-directory report, when a stats option was set.
+        du: the ``du`` report, when ``du`` or ``duf`` was set.
         error: a message when ``status`` is False for an environment reason.
         runTime: seconds from construction to the end of the run.
 
@@ -327,6 +430,7 @@ class RunResult:
     tree: dict[str, list[str]] = field(default_factory=dict)
     process: ProcessResult | None = None
     stats: StatsResult | None = None
+    du: DuReport | None = None
     error: str = ""
     runTime: float = 0.0
 
