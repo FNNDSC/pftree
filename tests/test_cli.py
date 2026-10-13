@@ -11,6 +11,7 @@ import pytest
 from pftree import __version__
 from pftree.__main__ import (
     BG_PAGE,
+    FG_BANNER,
     FG_BODY,
     FG_COMMAND,
     FG_CONTINUATION,
@@ -18,7 +19,9 @@ from pftree.__main__ import (
     FG_HEADING,
     FG_PLACEHOLDER,
     FG_STRING,
+    FG_VERSION,
     NO_COLOUR,
+    banner_render,
     cliLine_highlight,
     inlineCode_render,
     main,
@@ -133,6 +136,20 @@ def test_cliLine_highlight_coloursEachTokenKind() -> None:
     assert FG_PLACEHOLDER + "<inputDir>" in coloured
     assert FG_STRING + "'glob:*.dcm'" in coloured
     assert coloured.endswith(FG_CONTINUATION + "\\" + FG_BODY)
+
+
+def test_banner_render_coloursArtTitleProseAndVersion() -> None:
+    page: list[str] = banner_render(colour=True, width=80).splitlines()
+    assert page[2].startswith(BG_PAGE + FG_BANNER)
+    title: str = next(line for line in page if "Path-File tree structure" in line)
+    assert title.startswith(BG_PAGE + FG_HEADING)
+    prose: str = next(line for line in page if "Recursively walk" in line)
+    assert prose.startswith(BG_PAGE + FG_BODY)
+    version: str = next(line for line in page if __version__ in line)
+    assert FG_VERSION + __version__ + FG_BODY in version
+    bullet: str = next(line for line in page if "read input files" in line)
+    assert FG_FLAG + "*" + FG_BODY in bullet
+    assert banner_render(colour=False).count("\033") == 0
 
 
 def test_inlineCode_render_dropsBackticksAndColours() -> None:

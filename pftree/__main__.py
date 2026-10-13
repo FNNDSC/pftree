@@ -65,6 +65,8 @@ CLI_TOKEN: re.Pattern[str] = re.compile(
     r"|(?P<continuation>\\$)"
 )
 INLINE_CODE: re.Pattern[str] = re.compile(r"``([^`]+)``")
+BANNER_TITLE: str = "Path-File tree structure"
+BANNER_BULLET: re.Pattern[str] = re.compile(r"^(\s+)\*")
 CLI_TOKEN_COLOURS: dict[str, str] = {
     "command": FG_COMMAND,
     "flag": FG_FLAG,
@@ -400,7 +402,8 @@ def banner_render(colour: bool, width: int = FALLBACK_WIDTH) -> str:
     """The title block of the manual.
 
     Args:
-        colour: set the banner on the black page, cyan, with the version in yellow.
+        colour: set the banner on the black page: the art cyan, the title yellow,
+            the prose white, the version yellow, the bullets cyan.
         width: the page width when coloured.
 
     Returns:
@@ -408,11 +411,19 @@ def banner_render(colour: bool, width: int = FALLBACK_WIDTH) -> str:
     """
     if not colour:
         return BANNER_ART + BANNER_TEXT.format(version=__version__)
-    lines: list[str] = []
-    for line in (BANNER_ART + BANNER_TEXT.format(version="{version}")).splitlines():
+    lines: list[str] = [line_onPage(line, len(line), width, FG_BANNER) for line in BANNER_ART.splitlines()]
+    for line in BANNER_TEXT.format(version="{version}").splitlines():
         visible: str = line.replace("{version}", __version__)
-        coloured: str = line.replace("{version}", FG_VERSION + __version__ + FG_BANNER)
-        lines.append(line_onPage(coloured, len(visible), width, FG_BANNER))
+        if line.strip() == BANNER_TITLE:
+            lines.append(line_onPage(line, len(line), width, FG_HEADING))
+        elif "{version}" in line:
+            coloured: str = line.replace("{version}", FG_VERSION + __version__ + FG_BODY)
+            lines.append(line_onPage(coloured, len(visible), width, FG_BODY))
+        elif BANNER_BULLET.match(line):
+            coloured = BANNER_BULLET.sub(lambda match: match.group(1) + FG_FLAG + "*" + FG_BODY, line)
+            lines.append(line_onPage(coloured, len(visible), width, FG_BODY))
+        else:
+            lines.append(line_onPage(line, len(line), width, FG_BODY))
     return "\n".join(lines)
 
 
