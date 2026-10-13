@@ -225,15 +225,18 @@ class DuLine:
     """One line of the ``du`` report.
 
     Attributes:
-        kilobytes: the directory's cumulative size in 1024-byte units, rounded up.
+        kilobytes: the directory's cumulative size in 1024-byte units, rounded up,
+            what ``du -k`` prints.
+        byteCount: the same size in bytes, what ``du -h`` formats from.
         path: the directory, as walked.
 
     Example:
-        >>> DuLine(kilobytes=4, path="/in/a").kilobytes
+        >>> DuLine(kilobytes=4, byteCount=4096, path="/in/a").kilobytes
         4
     """
 
     kilobytes: int
+    byteCount: int
     path: str
 
 

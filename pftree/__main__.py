@@ -38,7 +38,7 @@ from collections.abc import Sequence
 
 from pftree import __version__
 from pftree.models import DuReport, RunResult, StatsResult, TreeOptions
-from pftree.tree import KILOBYTE, Pftree, du_humanize
+from pftree.tree import Pftree, du_humanize
 
 NO_COLOUR: str = "\033[0m"
 BG_PAGE: str = "\033[40m"
@@ -729,7 +729,7 @@ def du_render(report: DuReport, human: bool) -> str:
     """
     lines: list[str] = []
     for line in report.lines:
-        size: str = du_humanize(line.kilobytes * KILOBYTE) if human else str(line.kilobytes)
+        size: str = du_humanize(line.byteCount) if human else str(line.kilobytes)
         lines.append(f"{size}\t{line.path}")
     return "\n".join(lines)
 

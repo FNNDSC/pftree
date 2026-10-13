@@ -200,17 +200,21 @@ class TreeScanner:
                         continue
                     if isDir and self.dir_enterable(entry, isLink):
                         if descend:
+                            if isLink:
+                                status, isLink = self.link_resolve(entry, status)
                             below: DirUsage = self.dir_scan(
                                 Path(entry.path), fileSize_fromStat(status, isLink), depth + 1
                             )
                             diskBytes += below.diskBytes
                             apparentBytes += below.apparentBytes
                         continue
+                    if isLink and self.followLinks:
+                        status, isLink = self.link_resolve(entry, status)
                     size: FileSize = fileSize_fromStat(status, isLink)
                     fileSizes[entry.name] = size
                     if not entry_pointsToDir(entry):
                         fileNames.append(entry.name)
-                    if status.st_nlink > 1 and not isLink:
+                    if not isLink and (status.st_nlink > 1 or self.followLinks):
                         inode: tuple[int, int] = (status.st_dev, status.st_ino)
                         if inode in self.seenInodes:
                             continue
@@ -222,6 +226,24 @@ class TreeScanner:
         usage: DirUsage = DirUsage(path=path, diskBytes=diskBytes, apparentBytes=apparentBytes)
         self.usage.append(usage)
         return usage
+
+    @staticmethod
+    def link_resolve(entry: os.DirEntry[str], linkStatus: os.stat_result) -> tuple[os.stat_result, bool]:
+        """Under ``followLinks``, a symbolic link to a file counts as its target.
+
+        Args:
+            entry: the link's scandir entry.
+            linkStatus: the link's own ``lstat``, used when the target is unreachable.
+
+        Returns:
+            The status to size the entry by and whether it still counts as a link:
+            the target's status and False, or the link's own and True when the target
+            cannot be stat-ed (a dangling link), as ``du -L`` does.
+        """
+        try:
+            return entry.stat(follow_symlinks=True), False
+        except OSError:
+            return linkStatus, True
 
     def dir_enterable(self, entry: os.DirEntry[str], isLink: bool) -> bool:
         """Whether a directory entry should be descended into.
@@ -474,13 +496,12 @@ class Pftree:
             kilobytes of disk blocks, or of apparent size with ``apparentSize``.
         """
         apparent: bool = self.options.apparentSize
-        lines: list[DuLine] = [
-            DuLine(
-                kilobytes=kilobytes_roundUp(usage.apparentBytes if apparent else usage.diskBytes),
-                path=str(usage.path),
+        lines: list[DuLine] = []
+        for usage in self.usage:
+            byteCount: int = usage.apparentBytes if apparent else usage.diskBytes
+            lines.append(
+                DuLine(kilobytes=kilobytes_roundUp(byteCount), byteCount=byteCount, path=str(usage.path))
             )
-            for usage in self.usage
-        ]
         return DuReport(lines=lines, apparent=apparent)
 
     def tree_construct(self, nodes: list[DirNode]) -> int:
