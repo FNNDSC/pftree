@@ -205,3 +205,24 @@ def test_scan_splitClampsToMaxDepth(tmp_path: Path) -> None:
     assert scanner.scan().usage == sequential.usage
     rootOnly = TreeScanner(inputDir, maxDepth=0, followLinks=False, threads=4, splitDepth=2).scan()
     assert len(rootOnly.usage) == 1
+
+
+def test_duOnly_skipsFileRecords(tmp_path: Path) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    duOnly = Pftree(TreeOptions(inputDir=inputDir, du=True, verbosity=0))
+    assert duOnly.duOnly_wanted()
+    result = duOnly.run()
+    assert result.du is not None and result.tree == {}
+    withStats = Pftree(TreeOptions(inputDir=inputDir, du=True, stats=True, verbosity=0))
+    assert not withStats.duOnly_wanted()
+    both = withStats.run()
+    assert both.du is not None and both.stats is not None and both.tree
+    assert both.du == result.du
+
+
+def test_scan_withoutFileRecordsMatchesUsage(tmp_path: Path) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    full = TreeScanner(inputDir, maxDepth=-1, followLinks=False).scan()
+    lean = TreeScanner(inputDir, maxDepth=-1, followLinks=False, recordFiles=False).scan()
+    assert lean.usage == full.usage
+    assert all(not entry.fileNames and not entry.fileSizes for entry in lean.entries)

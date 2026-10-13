@@ -233,6 +233,9 @@ class TreeScanner:
         threads: workers for the directories at the split level; ``1`` scans in order.
         splitDepth: the level whose directories become the workers' jobs; clamped to
             ``maxDepth``.
+        recordFiles: keep each directory's file names and sizes in its WalkEntry.
+            False when only the usage lines are wanted, which skips the per-file
+            records and their cost.
         entries: the directories in scan order, filled by ``scan``.
         usage: the directories in post-order with the root last, filled by ``scan``.
         ledger: the inodes counted so far, shared with the workers.
@@ -251,11 +254,13 @@ class TreeScanner:
         threads: int = 1,
         splitDepth: int = 1,
         ledger: InodeLedger | None = None,
+        recordFiles: bool = True,
     ) -> None:
         self.root: Path = root
         self.maxDepth: int = maxDepth
         self.followLinks: bool = followLinks
         self.threads: int = threads
+        self.recordFiles: bool = recordFiles
         self.splitDepth: int = splitDepth if maxDepth == WALK_ALL_DEPTHS else min(splitDepth, maxDepth)
         self.entries: list[WalkEntry] = []
         self.usage: list[DirUsage] = []
@@ -301,7 +306,9 @@ class TreeScanner:
         usageByPath: dict[Path, DirUsage] = {usage.path: usage for usage in self.usage}
 
         def job_run(job: SplitJob) -> TreeScanner:
-            worker: TreeScanner = TreeScanner(self.root, self.maxDepth, self.followLinks, ledger=self.ledger)
+            worker: TreeScanner = TreeScanner(
+                self.root, self.maxDepth, self.followLinks, ledger=self.ledger, recordFiles=self.recordFiles
+            )
             worker.dir_scan(job.path, job.size, job.depth, onSubdir=worker.subdir_scan)
             return worker
 
@@ -382,18 +389,18 @@ class TreeScanner:
                         continue
                     if isLink and self.followLinks:
                         status, isLink = self.link_resolve(entry, status)
-                    size: FileSize = fileSize_fromStat(status, isLink)
-                    fileSizes[entry.name] = size
-                    if not entry_pointsToDir(entry):
-                        fileNames.append(entry.name)
+                    if self.recordFiles:
+                        fileSizes[entry.name] = fileSize_fromStat(status, isLink)
+                        if not entry_pointsToDir(entry):
+                            fileNames.append(entry.name)
                     if (
                         not isLink
                         and (status.st_nlink > 1 or self.followLinks)
                         and not self.ledger.file_claim((status.st_dev, status.st_ino))
                     ):
                         continue
-                    diskBytes += size.diskBytes
-                    apparentBytes += size.apparentBytes
+                    diskBytes += status.st_blocks * BLOCK_BYTES
+                    apparentBytes += status.st_size
         except OSError as err:
             logger.warning("cannot read %s: %s", path, err.strerror)
         usage: DirUsage = DirUsage(path=path, diskBytes=diskBytes, apparentBytes=apparentBytes)
@@ -637,6 +644,34 @@ class Pftree:
             fileSizes=entry.fileSizes,
         )
 
+    def scanner_build(self, recordFiles: bool = True) -> TreeScanner:
+        """A scanner over ``inputDir`` configured from the options.
+
+        Args:
+            recordFiles: keep per-file records (see TreeScanner).
+
+        Returns:
+            The scanner, not yet run.
+        """
+        return TreeScanner(
+            self.options.inputDir,
+            self.options.maxDepth,
+            self.options.followLinks,
+            self.scanThreads_get(),
+            self.options.threadsSplit,
+            recordFiles=recordFiles,
+        )
+
+    def usage_probe(self) -> list[DirUsage]:
+        """Scan ``inputDir`` for the ``du`` report alone, without per-file records.
+
+        Returns:
+            The usage lines, also kept in ``usage``; ``tree`` and ``nodes`` are left
+            empty.
+        """
+        self.usage = self.scanner_build(recordFiles=False).scan().usage
+        return self.usage
+
     def tree_probe(self) -> list[DirNode]:
         """Scan ``inputDir`` once and describe every directory that holds files.
 
@@ -645,13 +680,7 @@ class Pftree:
         Returns:
             One DirNode per directory with at least one (``inputFile``-matching) file.
         """
-        scan: TreeScan = TreeScanner(
-            self.options.inputDir,
-            self.options.maxDepth,
-            self.options.followLinks,
-            self.scanThreads_get(),
-            self.options.threadsSplit,
-        ).scan()
+        scan: TreeScan = self.scanner_build().scan()
         self.usage = scan.usage
         nodes: list[DirNode] = []
         for entry in scan.entries:
@@ -966,8 +995,21 @@ class Pftree:
         """Whether ``--du`` or ``--duf`` asked for the ``du`` report."""
         return self.options.du or self.options.duf
 
+    def duOnly_wanted(self) -> bool:
+        """Whether the run needs nothing but the ``du`` report.
+
+        Returns:
+            True when ``du`` or ``duf`` is set and no tree, stats, test run or JSON
+            output is asked for, so the scan can skip the per-file records.
+        """
+        opts: TreeOptions = self.options
+        return self.du_wanted() and not (self.stats_wanted() or opts.test or opts.json)
+
     def run(self) -> RunResult:
         """Probe, construct, filter, then test and report as the options ask.
+
+        A run that wants only the ``du`` report scans without per-file records and
+        returns an empty ``tree``.
 
         Returns:
             The run's result; ``status`` is False with ``error`` set when the input
@@ -977,6 +1019,9 @@ class Pftree:
         if error:
             logger.error(error)
             return RunResult(status=False, error=error, runTime=self.runTime_get())
+        if self.duOnly_wanted():
+            self.usage_probe()
+            return RunResult(status=True, du=self.du_compute(), runTime=self.runTime_get())
         self.tree_construct(self.tree_probe())
         if self.fileTokens or self.dirTokens:
             self.tree_filter()
