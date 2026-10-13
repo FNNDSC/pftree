@@ -481,8 +481,12 @@ def parserIO_build() -> argparse.ArgumentParser:
     return parser
 
 
-def parserCore_build() -> argparse.ArgumentParser:
+def parserCore_build(command: str = "pftree", version: str = __version__) -> argparse.ArgumentParser:
     """The engine options shared with packages built on pftree.
+
+    Args:
+        command: the name ``--version`` prints, for a package built on pftree.
+        version: the version ``--version`` prints.
 
     Returns:
         A parent parser with the walk, filter, output and threading options.
@@ -552,7 +556,7 @@ def parserCore_build() -> argparse.ArgumentParser:
     parser.add_argument(
         "--synopsis", dest="synopsis", action="store_true", help="show the brief manual and exit"
     )
-    parser.add_argument("--version", action="version", version=f"pftree {__version__}")
+    parser.add_argument("--version", action="version", version=f"{command} {version}")
     return parser
 
 

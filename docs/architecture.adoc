@@ -1,0 +1,40 @@
+= pftree: architecture
+:toc:
+
+== Abstract
+
+pftree is four modules with one direction of dependency: `models` defines every option and result as a dataclass; `filters` parses and applies the token grammar; `tree` holds the scanner and the engine; `__main__` is the command and its manual, with `manual` rendering the page. Each module is importable without the ones above it, which is what lets a package built on pftree take the engine without the command, or the manual renderer without the engine.
+
+== Models first
+
+Every value that crosses a method boundary is a dataclass in `pftree.models`: `TreeOptions` on the way in; `WalkEntry`, `DirNode`, `StageResult`, `KeyedResult`, `ProcessResult`, `DirStat`, `StatsResult`, `DuLine`, `DuReport` and `RunResult` on the way out. The choice is a discipline rather than a convenience. The 3.x engine passed dictionaries whose keys were documented in prose and checked at run time, and a subclass that returned a dictionary without a `status` key was a fatal error discovered in production. A dataclass makes the contract a type: a callback returns a `StageResult` or it does not compile in the reader's head, and `RunResult.toDict()` is the one place a dictionary is made, for JSON.
+
+`TreeOptions.fromDict` accepts a loose mapping, coerces strings to paths and integers, and ignores keys it does not know. That last property is what lets a subclass with more options pass `vars(args)` straight through: pfdo's namespace carries `analyzeFileIndex`, pftree's options do not, and neither needs to know.
+
+== The scan
+
+`TreeScanner` makes one pass over the input directory with `os.scandir`. For every entry it takes the `DirEntry`'s cached `lstat`, so each file costs one system call and no path string is built for it. From that pass it yields both the top-down list of `WalkEntry` records the engine turns into nodes, and the post-order list of `DirUsage` records that is the `du` report. Doing both in one pass is why `--du` costs the walk and nothing more; 3.x walked with `os.walk` and then stat-ed every file a second time to measure it, and was three times slower for it.
+
+Hard links are counted once, by a ledger of `(st_dev, st_ino)` pairs claimed under a lock. Symbolic links count as themselves unless `followLinks` is set, in which case a link to a file counts as its target and a link to a directory is entered the first time its target is met; a loop is a target already met. An entry that cannot be stat-ed is logged and skipped, and the directory's remaining entries are still read; an earlier version let one unreadable entry abort its whole directory, which is how `/usr/share/licenses` lost 257 subdirectories in a test.
+
+Entries are handled in directory order, and a subdirectory is descended into the moment it is met rather than after its siblings. The order matters only for hard links, which `du` charges to the first directory in which it meets them, and matching `du`'s order is what makes the output identical rather than merely equal in total.
+
+With `threads` above one on a free-threaded Python, the main thread walks down to `splitDepth` and hands every directory at that level to a worker; the workers' entries and usage are spliced back where the sequential scan would have put them and their totals added to each ancestor, so the output does not depend on the thread count. Under the global interpreter lock the scan stays single-threaded whatever is asked, because the measured cost of threads there is a slowdown, not a speedup.
+
+== The engine
+
+`Pftree` owns the scan's results as `tree`, a mapping from directory key to file names, and `nodes`, the `DirNode` per key, kept in step. The key is the directory's path, or its path relative to the input root under `relativeDir`; 3.x implemented the relative form by changing the process's working directory, which is a global side effect on a library, and 4.0 computes it.
+
+`tree_filter` applies the tokens from `filters`: a directory whose relative path fails the directory filter, or that keeps no files after the file filter, is removed. `tree_process` then runs the three stages. Reads are sequential, analyses go through a `ThreadPoolExecutor` when `threads` is positive with results collected from futures rather than written into shared dictionaries by the workers, and writes are sequential again, because file output from many threads contends on the same disk. A stage's verdict is that at least one directory succeeded; the run's verdict is that every stage that ran did.
+
+`outputPath_for` maps a directory to its place under the output root and applies the `outputLeafDir` template to the leaf with ordinary `%` formatting. The 3.x engine evaluated that template with `eval`, which made a command-line option an injection point; the template must now contain `%s` and nothing is evaluated.
+
+== The command and the manual
+
+`__main__` builds its parser from three parent parsers, I/O, core and self, and exposes the first two for packages that supply their own I/O arguments. The manual is built the same way: `CLI_*` and `ARGS_SYNOPSIS_*` strings that a dependent concatenates around its own, which is how pfdo's `--man` carries pftree's argument descriptions without copying them.
+
+`manual` renders a `Manual` to a page. On a terminal every line is set on a black background padded to the terminal width, so the page reads the same on light and dark terminals; headings are yellow, command-line lines have their command, flags, quoted strings and placeholders coloured, and prose spans written as backticked code lose the backticks and take the flag colour. Piped, the page carries no escape codes. The renderer is parameterised by the command's name and texts so that pfdo and its descendants get the same page with their own banner.
+
+== Verification
+
+The test suite exercises the filters as a table, the engine on a fixture tree with nesting, an empty directory, a hard link, a symbolic link and a linked directory, the threaded scan against the sequential one at every split level, and the command through `main`. The `du` tests run GNU `du` on the fixture and compare line sets for `-k`, `-h`, `--apparent-size` and `-L`; they are what caught two differences between coreutils 9.11 and 9.4. Continuous integration runs ruff and the suite on CPython 3.11 through 3.14 and on the free-threaded 3.14t build, and publishes to PyPI by trusted publishing when a `v*` tag matching the package version is pushed.
