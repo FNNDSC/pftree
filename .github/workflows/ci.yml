@@ -1,0 +1,52 @@
+# Lint and test on every push and pull request; build and publish to PyPI on a
+# version tag. Publishing uses PyPI trusted publishing (OIDC): no token is stored.
+# One-time setup on PyPI: project pftree → Publishing → add GitHub publisher
+# owner FNNDSC, repository pftree, workflow ci.yml, environment pypi.
+
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  test:
+    name: Lint and test (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14", "3.14t"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest -q
+
+  publish:
+    name: Publish to PyPI
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip build
+      - run: python -m build
+      - name: Check the tag matches the package version
+        run: |
+          expected="v$(python -c 'import pftree; print(pftree.__version__)')"
+          test "${GITHUB_REF_NAME}" = "${expected}" || { echo "tag ${GITHUB_REF_NAME} != ${expected}"; exit 1; }
+      - uses: pypa/gh-action-pypi-publish@release/v1

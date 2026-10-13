@@ -1,249 +1,102 @@
 pftree
 ======
 
-.. image:: https://badge.fury.io/py/pftree.svg
-    :target: https://badge.fury.io/py/pftree
+.. image:: https://github.com/FNNDSC/pftree/actions/workflows/ci.yml/badge.svg
+    :target: https://github.com/FNNDSC/pftree/actions/workflows/ci.yml
 
-.. image:: https://travis-ci.org/FNNDSC/pftree.svg?branch=master
-    :target: https://travis-ci.org/FNNDSC/pftree
+.. image:: https://img.shields.io/pypi/v/pftree.svg
+    :target: https://pypi.org/project/pftree/
 
-.. image:: https://img.shields.io/badge/python-3.5%2B-blue.svg
-    :target: https://badge.fury.io/py/pftree
+.. image:: https://img.shields.io/badge/python-3.11%2B-blue.svg
+    :target: https://pypi.org/project/pftree/
+
+A dictionary representation of a filesystem tree, with per-directory read / analyze / write processing.
 
 .. contents:: Table of Contents
-
-
-Quick Overview
---------------
-
--  Create a dictionary representation of a filesystem hierarchy.
--  Optionally report some stats on the hierarchy (esp size of each directory).
 
 Overview
 --------
 
-Given an ``<inputDir>``, ``pftree`` will perform a recursive walk down the directory tree. For each directory that contains files, ``pftree`` will create a dictionary key of the directory path, and will store a list of filenames for the key value.
-
-``pftree`` in and of itself does not really do any work. It is a class/module that abstracts the internals for representing file system hierarchies in dictionary form to be used by other modules. As a convenience, however, the ``--stats`` or ``--statsReverse`` do provide a useful analog for sorted directory usage down a file system tree.
-
-Several simple file and directory name filters can be applied which can facilitate the targetting of very specific elements in a file system tree.
-
-The core the of the class is a ``tree_analysisApply()`` method, that accepts various kwargs. When called, this method will loop over the dictionary, and for each key (i.e. 'path') will execute a callback method. This callback is passed the dictionary value at that key (i.e. usually just the list of files) as well as all the kwargs passed to ``tree_analysisApply()``.
+``pftree`` walks an input directory and records, for every directory that holds files, the names of those files. That mapping is the ``tree``. On top of it the engine runs a three-stage sequence over every directory, read, analyze and write, mirroring the input layout under an output directory. Packages such as ``pfdo`` and ``pfdicom`` subclass the engine and override the three callbacks; on its own, ``pftree`` prints trees as JSON and reports disk usage per directory.
 
 Installation
 ------------
 
-Dependencies
-~~~~~~~~~~~~
+.. code:: bash
 
-The following dependencies are installed on your host system/python3 virtual env (they will also be automatically installed if pulled from pypi):
+    pip install pftree
 
--  ``pfmisc`` (various misc modules and classes for the pf* family of objects)
--  ``tqdm`` (console prettiness for progress bars)
+Python 3.11 or newer. The only dependency is ``tqdm``.
 
-Using ``PyPI``
-~~~~~~~~~~~~~~
-
-The best method of installing this script and all of its dependencies is
-by fetching it from PyPI
+Command line
+------------
 
 .. code:: bash
 
-        pip3 install pftree
+    pftree --inputDir /data --stats
+    pftree --inputDir /data --du
+    pftree --inputDir /data --fileFilter 'glob:*.nii.gz,!tmp' --fileFilterLogic AND --json
+    pftree --inputDir /data --dirFilter 're:/anat$' --json
+    pftree --inputDir /data --outputDir /tmp/out --outputLeafDir 'preview-%s' --test 0
 
+``pftree --man`` prints the full manual, ``pftree --synopsis`` its first page, ``pftree --help`` argparse's quick reference. ``--inputDir`` (required) and ``--outputDir`` name the two trees. ``--maxDepth`` bounds the walk (``-1`` for all levels). ``--relativeDir`` keys the tree by paths relative to the input directory. ``--followLinks`` follows symbolic links. ``--threads N`` runs the analyze stage in a pool of N workers. ``--json`` prints the whole result. ``--du`` prints exactly what ``du -k`` prints (cumulative kilobytes per directory, every directory, children before parents, the input directory last, hard links counted once), so ``pftree --du --inputDir /data | xdu`` works; ``--duf`` is the ``du -h`` form and ``--apparentSize`` the ``du --apparent-size`` count. ``--stats``, ``--statsReverse`` and ``--jsonStats`` print pftree's own per-directory report: file count and apparent size of the files each directory holds, after any filters. ``--test <seconds>[:<type>]`` runs the built-in callbacks, sleeping per directory and writing a file listing (type 0) or a file count (type 1) into each output directory.
 
-Command line arguments
-----------------------
+Filters
+-------
 
-.. code:: html
+``--fileFilter`` and ``--dirFilter`` each take a comma-separated list of tokens. A token is one of:
 
-        --inputDir <inputDir>
-        Input directory to examine. The downstream nested structure of this
-        directory is examined and recreated in the <outputDir>.
+===================== ============================================================
+``nii``               substring: the text contains ``nii``
+``glob:*.nii.gz``     shell glob over the whole text
+``re:^sub-\d+$``      regular expression, searched anywhere in the text
+``!tmp``              negation of any of the above forms
+===================== ============================================================
 
-        [--outputDir <outputDir>]
-        The directory to contain a tree structure identical to the input
-        tree structure, and which contains all output files from the
-        per-input-dir processing.
+``--fileFilterLogic`` and ``--dirFilterLogic`` combine a filter's tokens with ``OR`` (any token, the default) or ``AND`` (every token).
 
-        [--maxdepth <dirDepth>]
-        The maximum depth to descend relative to the <inputDir>. Note, that
-        this counts from zero! Default of '-1' implies transverse the entire
-        directory tree.
+A file filter tests each file's name. A directory filter tests each directory's path relative to ``--inputDir`` with ``/`` separators, so the input root's own name never matches, and ``glob:*/anat`` or ``re:/anat$`` anchor on a component. The two filters are always ANDed: a file is kept only when its directory passes too, and a directory that keeps no files leaves the tree.
 
-        [--relativeDir]
-        A flag argument. If passed (i.e. True), then the dictionary key values
-        are taken to be relative to the <inputDir>, i.e. the key values
-        will not contain the <inputDir>; otherwise the key values will
-        contain the <inputDir>.
+Library
+-------
 
-        [--inputFile <inputFile>]
-        An optional <inputFile> specified relative to the <inputDir>. If
-        specified, then do not perform a directory walk, but target this
-        specific file.
+.. code:: python
 
-        [--fileFilter <someFilter1,someFilter2,...>]
-        An optional comma-delimated string to filter out files of interest
-        from the <inputDir> tree. Each token in the expression is applied in
-        turn over the space of files in a directory location according to a
-        logical operation, and only files that contain this token string in
-        their filename are preserved.
+    from pathlib import Path
+    from pftree import DirNode, Pftree, StageResult, TreeOptions
 
-        [--filteFilterLogic AND|OR]
-        The logical operator to apply across the fileFilter operation. Default
-        is OR.
+    class Counter(Pftree):
+        def inputAnalyze_callback(self, node: DirNode, read: StageResult) -> StageResult:
+            return StageResult(status=True, files=read.files, payload={"count": len(read.files)})
 
-        [--dirFilter <someFilter1,someFilter2,...>]
-        An additional filter that will further limit any files to process to
-        only those files that exist in leaf directory nodes that have some
-        substring of each of the comma separated <someFilter> in their
-        directory name.
+        def outputSave_callback(self, node: DirNode, analyze: StageResult) -> StageResult:
+            node.outputPath.mkdir(parents=True, exist_ok=True)
+            (node.outputPath / "count.txt").write_text(f"{analyze.payload['count']}\n")
+            return StageResult(status=True, files=["count.txt"])
 
-        [--dirFilterLogic AND|OR]
-        The logical operator to apply across the dirFilter operation. Default
-        is OR.
+    engine = Counter(TreeOptions(inputDir=Path("/data"), outputDir=Path("/out"), threads=4))
+    engine.tree_construct(engine.tree_probe())
+    engine.tree_filter()
+    result = engine.tree_process(
+        inputRead_callback=engine.inputRead_callback,
+        inputAnalyze_callback=engine.inputAnalyze_callback,
+        outputWrite_callback=engine.outputSave_callback,
+    )
 
-        [--outputLeafDir <outputLeafDirFormat>]
-        If specified, will apply the <outputLeafDirFormat> to the output
-        directories containing data. This is useful to blanket describe
-        final output directories with some descriptive text, such as
-        'anon' or 'preview'.
+Every option and result type lives in ``pftree.models``. ``TreeOptions`` holds every option; ``TreeOptions.fromDict(vars(args))`` builds it from an argparse ``Namespace`` and ignores keys it does not know, so a subclass with a larger argument set passes its namespace straight through. ``pftree.__main__`` exposes ``parserCore_build()`` and ``parserSelf_build()`` as parent parsers, and the ``CLI_*`` and ``ARGS_SYNOPSIS_*`` manual texts, for packages that add their own input and output arguments and compose their own ``--man`` page.
 
-        This is a formatting spec, so
+Each callback receives a ``DirNode`` (``path``, ``relPath``, sorted ``files``, ``outputPath``) and returns a ``StageResult`` (``status``, ``files``, ``payload``). Reads and writes run sequentially; analyses run in the thread pool when ``threads`` is positive. A directory whose analyze result has ``status`` False, or whose analyze callback raises, is dropped from the tree before the write stage; the exception is logged with its traceback. ``tree_process`` returns a ``ProcessResult`` with the per-directory results and file counts.
 
-            --outputLeafDir 'preview-%%s'
+Changes in 4.0
+--------------
 
-        where %%s is the original leaf directory node, will prefix each
-        final directory containing output with the text 'preview-' which
-        can be useful in describing some features of the output set.
-
-        [--threads <numThreads>]
-        If specified, break the innermost analysis loop into <numThreads>
-        threads. Please note the following caveats:
-
-            * Only thread if you have a high CPU analysis loop. Note that
-              the input file read and output file write loops are not
-              threaded -- only the analysis loop is threaded. Thus, if the
-              bulk of execution time is in file IO, threading will not
-              really help.
-
-            * Threading will change the nature of the innermost looping
-              across the problem domain, with the result that *all* of the
-              problem data will be read into memory! That means potentially
-              all the target input file data across the entire input directory
-              tree.
-
-        [--json]
-        If specified, do a JSON dump of the entire return payload.
-
-        [--followLinks]
-        If specified, follow symbolic links.
-
-        [--overwrite]
-        If specified, allow for overwriting of existing files
-
-        [--man]
-        Show full help.
-
-        [--synopsis]
-        Show brief help.
-
-        [--verbosity <level>]
-        Set the app verbosity level. This ranges from 0...<N> where internal
-        log messages with a level=<M> will only display if M <= N. In this
-        manner increasing the level here can be used to show more and more
-        debugging info, assuming that debug messages in the code have been
-        tagged with a level.
-
-        [--stats | --statsReverse | --du | --duf]
-        If specified, return some stats to caller. The amount of information
-        returned depends on the --verbosity.
-
-        For --stats (and --statsReverse):
-
-            * --verbosity 0: return only a final summary of group statistics
-            * --verbosity 1: in addition, return a sorted (by size) list of
-                             subdirectories in the search tree
-            * --verbosity >1: same as above, but provide probing status updates.
-                              NOTE: this incurs a significant performance penalty!
-
-        For --du | --duf
-
-            similar to '--stats' but return directory lists in a fashion similar
-            to the GNU 'du' tool. Both of these set default verbosity values so that
-
-            * --du : only provide a summary
-            * --duf: provide the (full) sorted list as well
-
-        [--3D]
-        A "toy" flag that simply shows the final stats report with an ASCII
-        3D effect.
-
-        [--jsonStats]
-        If specified, do a JSON dump of the stats.
-
-        [--syslog]
-        If specified, prepend output 'log' messages in syslog style.
-
-        [--test <analysisDelayLength[:<type>]>]
-        If specified, perform a test/dummy run through the
-
-            - read
-            - analyze
-            - write
-
-        callbacks. The <analysisDelayLength> denotes time (in seconds)
-        to delay in the analysis loop -- useful for testing threading
-        performance.
-
-        An optional [:<type>] can be specified.
-
-            :0  - write the 'l_file' to each outputdir, i.e. a simple 'ls'
-                  analog
-            :1  - write only the number of files analyzed to each outputdir,
-                  i.e. a summary.
-
-        For large trees, ':0' can take a significantly longer time than
-        ':1'.
-
-Examples
---------
-
-stats
-~~~~~
-
-Run on a target tree and output some detail and stats
-
-.. code:: bash
-
-        pftree          --inputDir /var/www/html                                \
-                        --printElapsedTime                                      \
-                        --stats --verbosity 0
-
-Increasing the ``verbosity`` will produce increasing output on the console. Passing
-a ``--json`` will return a highly detailed JSON payload with considerable information.
-Passing a ``--jsonStats`` will only return a summary of the final stats on the
-filesystem probed. Note that the ``--verbosity`` flag is ignored if ``--json`` or ``--jsonStats`` are also present.
-
-.. code:: bash
-
-    pftree          --duf --inputDir /var/www/html
-
-Simpler CLI for a less "progress displaying" but faster response.
-
-test
-~~~~
-
-Run a test down a target tree:
-
-.. code:: bash
-
-        pftree          --inputDir /etc                                         \
-                        --outputDir /tmp/test                                   \
-                        --verbosity 1 --relativeDir                             \
-                        --outputLeafDir 'preview-%%s'                           \
-                        --test 0
-
-which will "copy" the input tree to the output, and save a file-ls.txt in each directory where necessary. Note the ``-r`` for 'relative' directory specification and the ``--outputLeafDir`` spec.
-
-_-30-_
+- ``pfmisc`` and ``pudb`` are no longer dependencies; logging goes through the standard ``logging`` module under the ``pftree`` logger.
+- ``--outputLeafDir`` is applied with ordinary ``%`` formatting; the template must contain ``%s``.
+- The callback methods are ``inputRead_callback``, ``inputAnalyze_callback`` and ``outputSave_callback``, and they take and return typed objects rather than tuples and dicts.
+- ``--dirFilter`` matches the path relative to the input directory, not the absolute path.
+- Filter tokens accept ``glob:``, ``re:`` and ``!`` prefixes.
+- Files directly under the input directory are listed under the root key; earlier versions listed the root's subdirectory names there instead.
+- ``--relativeDir`` no longer changes the process's working directory.
+- The ``--3D`` and ``--syslog`` options are gone.
+- ``main(argv)`` honours ``argv``; ``--version``, ``--man`` and ``--synopsis`` exit 0.
+- Packaging is ``pyproject.toml`` only, published from CI on a ``v*`` tag.
