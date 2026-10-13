@@ -25,6 +25,18 @@ The command exposes the engine without a subclass. It prints the tree as JSON, r
 
 pftree does not map files one to one. A tool whose unit is a single file, read here and written there, is better served by a plain file iterator; pftree's directory grouping would be a detour. pftree also knows nothing of ChRIS, CUBE or any store; it reads and writes a filesystem, and a plugin built on it is a ChRIS plugin because of its wrapper, not because of pftree.
 
+== pftree and PathMapper
+
+The ChRIS plugin template ships `chris_plugin.PathMapper`, and a plugin author choosing a walk should know how the two differ, since each is the right tool for a different shape of plugin.
+
+`PathMapper` is an iterator of pairs. Given an input directory, an output directory and a glob, it yields each matching input path together with the output path that corresponds to it, creating parent directories as it goes; `file_mapper` yields files, `dir_mapper_shallow` the immediate subdirectories, `dir_mapper_deep` the deepest ones. A `filter` callable narrows the matches, a `name_mapper` renames outputs, and `fail_if_empty` exits the process when nothing matches. It is about three hundred lines, has no dependencies and no opinions, stats nothing, and stops there. For a plugin whose unit of work is one file, read here and written there, it removes exactly the code that plugin would otherwise write, and nothing pftree adds would be used.
+
+pftree's unit is the directory, and the difference follows from that. A `DirNode` carries the directory, its path relative to the input root, its files and their sizes, and its output path, so a plugin that works per series, subject or session does not rebuild that grouping from a stream of files. The three-stage contract gives every plugin on it the same failure semantics, one bad directory logged and dropped while the rest proceed, and the same thread pool, where with `PathMapper` each plugin writes its own loop, its own error handling and, usually, no threading at all. The filters are options a user sets at run time rather than a callable fixed when the plugin is written, and the single-pass scan yields sizes and a `du`-exact report that a plugin asking "how large is this input" gets without a second walk. The command line and manual parts let the plugins built on pftree share one vocabulary of options and one page layout.
+
+What pftree does not offer is `PathMapper`'s per-file mapping and output renaming, or its footprint: pftree asks a plugin to think in directories and in three stages, and a plugin that has no directory notion pays that for nothing. Neither knows anything of CUBE or any store; both stop at the filesystem.
+
+The choice, then, is by the plugin's unit of work. One file in, one file out: `PathMapper`. One operation per directory, with filters, failure isolation and parallelism wanted: pftree. The members of the pfdo and pfdicom families are the second kind, which is why they are built here.
+
 == Who uses it
 
 pftree is the base of two families. The `pfdo` family (`pfdo`, `pfdo_run`, `pfdo_med2image`, `pfdo_mgz2image`, `pfdo_mri_unet`) subclasses it to run one operation per directory. The `pfdicom` family (`pfdicom`, `pfdicom_tagExtract`, `pfdicom_tagSub`, `pfdicom_rev`, `pfdicom_agesort`) subclasses it to read, rewrite and summarize DICOM headers per series. The ChRIS plugins built on those (`pl-shexec`, `pl-pfdicom_tagExtract`, `pl-pfdicom_tagSub` and others) inherit the walk, the filters and the failure semantics, which is the point.
