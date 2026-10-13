@@ -1,541 +1,292 @@
-#!/usr/bin/env python3
-#
-# (c) 2017-2022 Fetal-Neonatal Neuroimaging & Developmental Science Center
-#                    Boston Children's Hospital
-#
-#              http://childrenshospital.org/FNNDSC/
-#                        dev@babyMRI.org
-#
+"""The ``pftree`` command line.
 
-import  pudb
-import sys, os
-sys.path.insert(1, os.path.join(os.path.dirname(__file__), '../pftree'))
+Walk a directory, print its tree as JSON, or report disk usage per directory in the
+style of ``du``. The parser is built from three parts (I/O, core, self) so that a
+package built on pftree, such as pfdo, can reuse the core and self parts and supply
+its own I/O arguments.
 
-try:
-    from    .               import pftree
-    from    .               import __pkg, __version__
-except:
-    from pftree             import pftree
-    from __init__           import __pkg, __version__
+Key components:
+    - parserIO_build / parserCore_build / parserSelf_build: the argument groups
+    - parser_build: the assembled parser, standalone or ChRIS-DS style
+    - options_fromArgs: Namespace to TreeOptions
+    - stats_render: the text report
+    - main: the entry point, honouring an explicit ``argv``
 
+Typical usage:
+    pftree --inputDir /data --stats
+    pftree --inputDir /data --fileFilter 'glob:*.dcm' --json
 
-from    argparse            import RawTextHelpFormatter
-from    argparse            import ArgumentParser
-
-import  pfmisc
-from    pfmisc._colors      import Colors
-from    pfmisc              import other
-
-str_desc = Colors.CYAN + f'''
-
-
-        __ _
-       / _| |
- _ __ | |_| |_ _ __ ___  ___
-| '_ \|  _| __| '__/ _ \/ _ \\
-| |_) | | | |_| | |  __/  __/
-| .__/|_|  \__|_|  \___|\___|
-| |
-|_|
-
-
-
-                            Path-File tree structure
-
-        Recursively walk down an input directory tree and create a  dictionary
-        representation of the path structure. Each tree "key" corresponds to a
-        dirctory path and the key  "value" is a list  of files in  that corre-
-        sponding directory in the filesystem.
-
-                             -- version ''' + \
-             Colors.YELLOW + __version__ + Colors.CYAN + ''' --
-
-        The main purpose of this module, other than probing a filesystem tree,
-        is to provide some base methods to a caller that:
-
-            * read input files in an input directory
-            * analyze these files
-            * save resultant files in an output directory
-
-        Callers can override these methods for specific needs/workflows.  This
-        module can orchestrate the flow of these core methods in either single
-        or multiple threaded modes.
-
-''' + Colors.NO_COLOUR
-
-package_IOcore  = """
-        --inputDir <inputDir>                                                   \\
-        [--outputDir <outputDir>]                                               \\"""
-
-package_DSIO  = """
-        <inputDir>                                                              \\
-        <outputDir>                                                             \\"""
-
-package_CLIcore = """
-        [--fileFilter <someFilter1,someFilter2,...>]                            \\
-        [--filteFilterLogic AND|OR]                                             \\
-        [--dirFilter <someFilter1,someFilter2,...>]                             \\
-        [--dirFilterLogic AND|OR]                                               \\
-        [--maxdepth <dirDepth>]                                                 \\
-        [--inputFile <inputFile>]                                               \\
-        [--relativeDir]                                                         \\
-        [--overwrite]                                                           \\
-        [--followLinks]                                                         \\
-        [--outputLeafDir <outputLeafDirFormat>]                                 \\
-        [--printElapsedTime]                                                    \\
-        [--man]                                                                 \\
-        [--synopsis]                                                            \\
-        [--verbosity <verbosity>]                                               \\
-        [--version]                                                             \\
-        [--threads <numThreads>]                                                \\
-        [--json]
+Dependencies:
+    - pftree.tree, pftree.filters
 """
 
-package_CLIself     = '''
-        [--stats | --statsReverse | --du | --duf]                               \\
-        [--3D]                                                                  \\
-        [--jsonStats]                                                           \\
-        [--syslog]                                                              \\
-        [--test <analysisDelayLength[:<type>]>]                                 \\'''
-
-package_argSynopsisSelf = """
-        [--stats | --statsReverse | --du | --duf]
-        If specified, return some stats to caller. The amount of information
-        returned depends on the --verbosity.
-
-        For --stats (and --statsReverse):
-
-            * --verbosity 0: return only a final summary of group statistics
-            * --verbosity 1: in addition, return a sorted (by size) list of
-                             subdirectories in the search tree
-            * --verbosity >1: same as above, but provide probing status updates.
-                              NOTE: this incurs a significant performance penalty!
-
-        For --du | --duf
-
-            similar to '--stats' but return directory lists in a fashion similar
-            to the GNU 'du' tool. Both of these set default verbosity values so that
-
-            * --du : only provide a summary
-            * --duf: provide the (full) sorted list as well
-
-        [--3D]
-        A "toy" flag that simply shows the final stats report with an ASCII
-        3D effect.
-
-        [--jsonStats]
-        If specified, do a JSON dump of the stats.
-
-        [--syslog]
-        If specified, prepend output 'log' messages in syslog style.
-
-        [--test <analysisDelayLength[:<type>]>]
-        If specified, perform a test/dummy run through the
-
-            - read
-            - analyze
-            - write
-
-        callbacks. The <analysisDelayLength> denotes time (in seconds)
-        to delay in the analysis loop -- useful for testing threading
-        performance.
-
-        An optional [:<type>] can be specified.
-
-            :0  - write the 'l_file' to each outputdir, i.e. a simple 'ls'
-                  analog
-            :1  - write only the number of files analyzed to each outputdir,
-                  i.e. a summary.
-
-        For large trees, ':0' can take a significantly longer time than
-        ':1'.
-"""
-
-package_argSynopsisIO = """
-
-        --inputDir <inputDir>
-        Input directory to examine. The downstream nested structure of this
-        directory is examined and recreated in the <outputDir>.
-
-        [--outputDir <outputDir>]
-        The directory to contain a tree structure identical to the input
-        tree structure, and which contains all output files from the
-        per-input-dir processing.
-"""
-
-package_argSynopsisDS = """
-
-        <inputDir>
-        A _required_ positional argument for ChRIS DS plugins denoting the
-        input directory to examine. The downstream nested structure of this
-        directory is examined and recreated in the <outputDir>.
-
-        <outputDir>
-        A _required_ positional argument for ChRIS DS plugins denoting the
-        output directory to store data. The structure of this tree mimics
-        that of the <inputDir>, with correspondant directory nodes containing
-        the results of corresponding <inputDir> processing.
-"""
-
-
-package_argSynopsisCore = """
-
-        [--maxdepth <dirDepth>]
-        The maximum depth to descend relative to the <inputDir>. Note, that
-        this counts from zero! Default of '-1' implies transverse the entire
-        directory tree.
-
-        [--relativeDir]
-        A flag argument. If passed (i.e. True), then the dictionary key values
-        are taken to be relative to the <inputDir>, i.e. the key values
-        will not contain the <inputDir>; otherwise the key values will
-        contain the <inputDir>.
-
-        [--inputFile <inputFile>]
-        An optional <inputFile> specified relative to the <inputDir>. If
-        specified, then do not perform a directory walk, but target this
-        specific file.
-
-        [--fileFilter <someFilter1,someFilter2,...>]
-        An optional comma-delimated string to filter out files of interest
-        from the <inputDir> tree. Each token in the expression is applied in
-        turn over the space of files in a directory location according to a
-        logical operation, and only files that contain this token string in
-        their filename are preserved.
-
-        [--filteFilterLogic AND|OR]
-        The logical operator to apply across the fileFilter operation. Default
-        is OR.
-
-        [--dirFilter <someFilter1,someFilter2,...>]
-        An additional filter that will further limit any files to process to
-        only those files that exist in leaf directory nodes that have some
-        substring of each of the comma separated <someFilter> in their
-        directory name.
-
-        [--dirFilterLogic AND|OR]
-        The logical operator to apply across the dirFilter operation. Default
-        is OR.
-
-        [--outputLeafDir <outputLeafDirFormat>]
-        If specified, will apply the <outputLeafDirFormat> to the output
-        directories containing data. This is useful to blanket describe
-        final output directories with some descriptive text, such as
-        'anon' or 'preview'.
-
-        This is a formatting spec, so
-
-            --outputLeafDir 'preview-%%s'
-
-        where %%s is the original leaf directory node, will prefix each
-        final directory containing output with the text 'preview-' which
-        can be useful in describing some features of the output set.
-
-        [--threads <numThreads>]
-        If specified, break the innermost analysis loop into <numThreads>
-        threads. Please note the following caveats:
-
-            * Only thread if you have a high CPU analysis loop. Note that
-              the input file read and output file write loops are not
-              threaded -- only the analysis loop is threaded. Thus, if the
-              bulk of execution time is in file IO, threading will not
-              really help.
-
-            * Threading will change the nature of the innermost looping
-              across the problem domain, with the result that *all* of the
-              problem data will be read into memory! That means potentially
-              all the target input file data across the entire input directory
-              tree.
-
-        [--json]
-        If specified, do a JSON dump of the entire return payload.
-
-        [--followLinks]
-        If specified, follow symbolic links.
-
-        [--overwrite]
-        If specified, allow for overwriting of existing files
-
-        [--man]
-        Show full help.
-
-        [--synopsis]
-        Show brief help.
-
-        [--verbosity <level>]
-        Set the app verbosity level. This ranges from 0...<N> where internal
-        log messages with a level=<M> will only display if M <= N. In this
-        manner increasing the level here can be used to show more and more
-        debugging info, assuming that debug messages in the code have been
-        tagged with a level.
-"""
-
-def synopsis(ab_shortOnly = False):
-    scriptName = os.path.basename(sys.argv[0])
-    shortSynopsis =  '''
-    NAME
-
-        pftree - Create a dictionary representation of a filesystem tree.
-
-    SYNOPSIS
-
-        pftree \ ''' + package_IOcore + package_CLIself + package_CLIcore + '''
-
-
-    BRIEF EXAMPLE
-
-        pftree                                                                  \\
-                --inputDir /var/www/html                                        \\
-                --outputDir /tmp                                                \\
-                --relativeDir                                                   \\
-                --printElapsedTime                                              \\
-                --stats
-
-
-    '''
-
-    description =  '''
-    DESCRIPTION
-
-        ``pftree`` in and of itself is does not really do any work. It is a
-        class that provides the internals for representing file system
-        hierarchies in dictionary form.
-
-        As a convenience, however, the ``--stats`` or ``--statsRevers``
-        flags do provide a useful analog for sorted directory usage down
-        a file system tree.
-
-        Given an ``<inputDir>``, ``pftree`` will perform a recursive walk down
-        the directory tree. For each directory that contains files,
-        ``pftree`` will create a dictionary key of the directory path,
-        and will store a list of filenames for the key value.
-
-        The core the of the class is a tree_analysisApply() method, that
-        accepts various kwargs. When called, this method will loop
-        over the dictionary, and for each key (i.e. 'path') will execute
-        a callback method. This callback is passed the dictionary value
-        at that key (i.e. usually just the list of files) as well as
-        all the kwargs passed to tree_analysisApply().
-
-    ARGS ''' +  package_argSynopsisIO   + \
-                package_argSynopsisCore + \
-                package_argSynopsisSelf + '''
-
-
-    EXAMPLES
-
-    * Run on a target tree and output some detail and stats
-
-        pftree          --inputDir /var/www/html                                \\
-                        --printElapsedTime                                      \\
-                        --stats --verbosity 0 --json
-
-    which will output only at script conclusion and will log a JSON formatted
-    string. Similarly
-
-        pftree          --du --inputDir /var/www/html
-
-    * Run a test down a target tree:
-
-        pftree          --inputDir /etc                                         \\
-                        --outputDir /tmp/test                                   \\
-                        --verbosity 1 --relativeDir                             \\
-                        --outputLeafDir 'preview-%%s'                           \\
-                        --test 0
-
-    which will "copy" the input tree to the output, and save a file-ls.txt
-    in each directory where necessary. Note  for 'relative' directory
-    specification and the ``--outputLeafDir`` spec.
-
-    '''
-    if ab_shortOnly:
-        return shortSynopsis
-    else:
-        return shortSynopsis + description
-
-
-parserIO    = ArgumentParser(description        = 'I/O',
-                             formatter_class    = RawTextHelpFormatter,
-                             add_help           = False)
-parserCore  = ArgumentParser(description        = 'Core',
-                             formatter_class    = RawTextHelpFormatter,
-                             add_help           = False)
-parserSelf  = ArgumentParser(description        = 'Self specific',
-                             formatter_class    = RawTextHelpFormatter,
-                             add_help           = False)
-
-
-parserIO.add_argument("--inputDir", '--inputdir',
-                    help    = "input dir",
-                    dest    = 'inputDir',
-                    default = '')
-parserIO.add_argument("--outputDir", '--outputdir',
-                    help    = "output image directory",
-                    dest    = 'outputDir',
-                    default = '.')
-
-parserCore.add_argument("--maxDepth",
-                    help    = "max depth, counting from zero, to descend",
-                    dest    = 'maxDepth',
-                    default = '-1')
-parserCore.add_argument("--inputFile",
-                    help    = "input file",
-                    dest    = 'inputFile',
-                    default = '')
-parserCore.add_argument("--man",
-                    help    = "man",
-                    dest    = 'man',
-                    action  = 'store_true',
-                    default = False)
-parserCore.add_argument("--synopsis",
-                    help    = "short synopsis",
-                    dest    = 'synopsis',
-                    action  = 'store_true',
-                    default = False)
-parserCore.add_argument("--verbosity",
-                    help    = "verbosity level for app",
-                    dest    = 'verbosity',
-                    default = "1")
-parserCore.add_argument("--threads",
-                    help    = "number of threads for innermost loop processing",
-                    dest    = 'threads',
-                    default = "0")
-parserCore.add_argument("--outputLeafDir",
-                    help    = "formatting spec for output leaf directory",
-                    dest    = 'outputLeafDir',
-                    default = "")
-parserCore.add_argument("--relativeDir",
-                    help    = "use relative directories",
-                    dest    = 'relativeDir',
-                    action  = 'store_true',
-                    default = False)
-parserCore.add_argument("--json",
-                    help    = "JSON final return",
-                    dest    = 'json',
-                    action  = 'store_true',
-                    default = False)
-parserCore.add_argument("--printElapsedTime",
-                    help    = "print program run time",
-                    dest    = 'printElapsedTime',
-                    action  = 'store_true',
-                    default = False)
-parserCore.add_argument("--followLinks",
-                    help    = "follow symbolic links",
-                    dest    = 'followLinks',
-                    action  = 'store_true',
-                    default = False)
-parserCore.add_argument("--overwrite",
-                    help    = "allow for overwriting of existing files",
-                    dest    = 'overwrite',
-                    action  = 'store_true',
-                    default = False)
-parserCore.add_argument('--version',
-                    help    = 'if specified, print version number',
-                    dest    = 'b_version',
-                    action  = 'store_true',
-                    default = False)
-parserCore.add_argument("--fileFilter",
-                    help    = "a list of comma separated string filters to apply across the input file space",
-                    dest    = 'fileFilter',
-                    default = '')
-parserCore.add_argument("--fileFilterLogic",
-                    help    = "the logic to apply across the file filter",
-                    dest    = 'fileFilterLogic',
-                    default = 'OR')
-parserCore.add_argument("--dirFilter",
-                    help    = "a list of comma separated string filters to apply across the input dir space",
-                    dest    = 'dirFilter',
-                    default = '')
-parserCore.add_argument("--dirFilterLogic",
-                    help    = "the logic to apply across the dir filter",
-                    dest    = 'dirFilterLogic',
-                    default = 'OR')
-parserCore.add_argument("--syslog",
-                    help    = "show outputs in syslog style",
-                    dest    = 'syslog',
-                    action  = 'store_true',
-                    default = False)
-
-parserSelf.add_argument("--stats",
-                    help    = "show some quick stats",
-                    dest    = 'stats',
-                    action  = 'store_true',
-                    default = False)
-parserSelf.add_argument("--statsReverse",
-                    help    = "show some quick stats (reverse order)",
-                    dest    = 'statsReverse',
-                    action  = 'store_true',
-                    default = False)
-parserSelf.add_argument("--du",
-                    help    = "show disk usage in the GNU du style",
-                    dest    = 'du',
-                    action  = 'store_true',
-                    default = False)
-parserSelf.add_argument("--duf",
-                    help    = "show disk usage in the GNU du style (no console updating)",
-                    dest    = 'duf',
-                    action  = 'store_true',
-                    default = False)
-parserSelf.add_argument("--3D",
-                    help    = "show table in ASCII 3D",
-                    dest    = 'table3D',
-                    action  = 'store_true',
-                    default = False)
-parserSelf.add_argument("--jsonStats",
-                    help    = "JSON dump stats",
-                    dest    = 'jsonStats',
-                    action  = 'store_true',
-                    default = False)
-parserSelf.add_argument("--test",
-                    help    = "perform a test run of the read/analyze/write loop -- arg indicates sleep length in analyze",
-                    dest    = 'test',
-                    default = '')
-
-# Stand alone parser
-parserSA     = ArgumentParser(description       = str_desc,
-                             formatter_class    = RawTextHelpFormatter,
-                             parents            = [parserIO, parserCore, parserSelf])
-
-# DS conformant parser
-parserDS     = ArgumentParser(description       = str_desc,
-                             formatter_class    = RawTextHelpFormatter,
-                             parents            = [parserCore, parserSelf])
-
-def main(argv = None):
-
-    args = parserSA.parse_args()
-
-    if args.man or args.synopsis:
-        print(str_desc)
-        if args.man:
-            str_help     = synopsis(False)
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import sys
+from collections.abc import Sequence
+
+from pftree import __version__
+from pftree.tree import Pftree, RunResult, StatsResult, TreeOptions
+
+DESCRIPTION: str = """pftree: a dictionary representation of a filesystem tree.
+
+Walk an input directory and record, for every directory that holds files, the names
+of those files. Filter what is kept with --fileFilter and --dirFilter, print the tree
+with --json, or report disk usage per directory with --stats or --du.
+
+The engine behind this command runs a read / analyze / write sequence over every
+directory, mirroring the input layout under --outputDir; packages such as pfdo build
+on it. --test exercises that sequence with built-in callbacks."""
+
+FILTER_HELP: str = """comma-separated tokens; each is a substring, 'glob:<pattern>',
+'re:<regex>', or any of those with a leading '!' to negate"""
+
+EPILOG: str = """examples:
+  pftree --inputDir /data --stats
+  pftree --inputDir /data --du
+  pftree --inputDir /data --fileFilter 'glob:*.nii.gz,!tmp' --fileFilterLogic AND --json
+  pftree --inputDir /data --dirFilter 're:/anat$' --json
+  pftree --inputDir /data --outputDir /tmp/out --outputLeafDir 'preview-%s' --test 0
+
+filters:
+  --fileFilter tests each file's name. --dirFilter tests each directory's path relative
+  to --inputDir with '/' separators, so the input root's own name never matches and
+  'glob:*/anat' or 're:/anat$' anchor on a component. Files and directories are always
+  ANDed: a file is kept only when its directory passes too."""
+
+VERBOSITY_LOG_LEVELS: dict[int, int] = {0: logging.ERROR, 1: logging.WARNING, 2: logging.INFO}
+
+
+def parserIO_build() -> argparse.ArgumentParser:
+    """The input and output directory arguments of the standalone command.
+
+    Returns:
+        A parent parser with ``--inputDir`` and ``--outputDir``.
+    """
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--inputDir", "--inputdir", dest="inputDir", required=True, help="directory to walk")
+    parser.add_argument(
+        "--outputDir", "--outputdir", dest="outputDir", default=".", help="where per-directory output goes"
+    )
+    return parser
+
+
+def parserCore_build() -> argparse.ArgumentParser:
+    """The engine options shared with packages built on pftree.
+
+    Returns:
+        A parent parser with the walk, filter, output and threading options.
+    """
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--maxDepth", dest="maxDepth", type=int, default=-1, help="levels to descend; -1 for all"
+    )
+    parser.add_argument(
+        "--inputFile", dest="inputFile", default="", help="list only files whose name contains this"
+    )
+    parser.add_argument("--fileFilter", dest="fileFilter", default="", help=FILTER_HELP)
+    parser.add_argument(
+        "--fileFilterLogic",
+        dest="fileFilterLogic",
+        default="OR",
+        choices=["AND", "OR", "and", "or"],
+        help="combine file tokens with AND or OR (default OR)",
+    )
+    parser.add_argument(
+        "--dirFilter", dest="dirFilter", default="", help=FILTER_HELP + ", on the relative path"
+    )
+    parser.add_argument(
+        "--dirFilterLogic",
+        dest="dirFilterLogic",
+        default="OR",
+        choices=["AND", "OR", "and", "or"],
+        help="combine directory tokens with AND or OR (default OR)",
+    )
+    parser.add_argument(
+        "--outputLeafDir",
+        dest="outputLeafDir",
+        default="",
+        help="template for each output leaf name; %%s is the input leaf, e.g. 'anon-%%s'",
+    )
+    parser.add_argument(
+        "--relativeDir", dest="relativeDir", action="store_true", help="key the tree by relative paths"
+    )
+    parser.add_argument(
+        "--followLinks", dest="followLinks", action="store_true", help="follow symbolic links"
+    )
+    parser.add_argument(
+        "--overwrite", dest="overwrite", action="store_true", help="allow overwriting existing output"
+    )
+    parser.add_argument(
+        "--threads", dest="threads", type=int, default=0, help="analyze-stage workers; 0 = sequential"
+    )
+    parser.add_argument("--verbosity", dest="verbosity", type=int, default=1, help="0 silences the console")
+    parser.add_argument("--json", dest="json", action="store_true", help="print the full result as JSON")
+    parser.add_argument(
+        "--printElapsedTime", dest="printElapsedTime", action="store_true", help="print the run time"
+    )
+    parser.add_argument("--man", dest="man", action="store_true", help="show the full help and exit")
+    parser.add_argument(
+        "--synopsis", dest="synopsis", action="store_true", help="show the usage line and exit"
+    )
+    parser.add_argument("--version", action="version", version=f"pftree {__version__}")
+    return parser
+
+
+def parserSelf_build() -> argparse.ArgumentParser:
+    """The options specific to the pftree command itself.
+
+    Returns:
+        A parent parser with the stats and test options.
+    """
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--stats", dest="stats", action="store_true", help="disk usage per directory, largest last"
+    )
+    parser.add_argument(
+        "--statsReverse", dest="statsReverse", action="store_true", help="disk usage, largest first"
+    )
+    parser.add_argument("--du", dest="du", action="store_true", help="du-style lines plus a summary")
+    parser.add_argument("--duf", dest="duf", action="store_true", help="du-style lines, no summary")
+    parser.add_argument("--jsonStats", dest="jsonStats", action="store_true", help="print the stats as JSON")
+    parser.add_argument(
+        "--test",
+        dest="test",
+        default="",
+        help="run the test callbacks; '<seconds>[:<type>]' sleeps per directory, type 1 writes counts",
+    )
+    return parser
+
+
+def parser_build(standalone: bool = True) -> argparse.ArgumentParser:
+    """Assemble the full parser.
+
+    Args:
+        standalone: include the ``--inputDir`` / ``--outputDir`` arguments. A ChRIS DS
+            plugin passes False and adds its own positional directories.
+
+    Returns:
+        The parser.
+    """
+    parents: list[argparse.ArgumentParser] = [parserCore_build(), parserSelf_build()]
+    if standalone:
+        parents.insert(0, parserIO_build())
+    return argparse.ArgumentParser(
+        prog="pftree",
+        description=DESCRIPTION,
+        epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents,
+    )
+
+
+def options_fromArgs(args: argparse.Namespace) -> TreeOptions:
+    """Turn parsed arguments into engine options.
+
+    Args:
+        args: the parser's Namespace.
+
+    Returns:
+        TreeOptions with every engine field applied; extra arguments are ignored.
+    """
+    return TreeOptions.fromDict(vars(args))
+
+
+def logging_configure(verbosity: int) -> None:
+    """Map verbosity to the pftree logger's level.
+
+    Args:
+        verbosity: 0 errors only, 1 warnings, 2 info, 3 and up debug.
+    """
+    level: int = VERBOSITY_LOG_LEVELS.get(verbosity, logging.DEBUG)
+    logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
+
+
+def stats_render(stats: StatsResult, duStyle: bool, summary: bool) -> str:
+    """Format the disk-usage report.
+
+    Args:
+        stats: the report to render.
+        duStyle: ``<size>  <path>`` lines like ``du -h``; else a wider table.
+        summary: append the totals block.
+
+    Returns:
+        The report text, lines joined with newlines.
+    """
+    lines: list[str] = []
+    for stat in stats.perDir:
+        if duStyle:
+            lines.append(f"{stat.sizeHuman:<10}{stat.path}")
         else:
-            str_help     = synopsis(True)
-        print(str_help)
-        return 1
+            lines.append(
+                f"files: {stat.files:5d}│ raw_size: {stat.sizeBytes:12d}│ "
+                f"human_size: {stat.sizeHuman:>8}│ dir: {stat.path}"
+            )
+    if summary:
+        lines.extend(
+            [
+                "",
+                f"Total size (raw):        {stats.totalSize}",
+                f"Total size (friendly):   {stats.totalSize:,}",
+                f"Total size (human):      {stats.totalSizeHuman}",
+                f"Total files:             {stats.files}",
+                f"Total dirs:              {stats.dirs}",
+            ]
+        )
+    return "\n".join(lines)
 
-    if args.b_version:
-        print("Name:    %s\nVersion: %s" % (__pkg.name, __version__))
-        return 1
 
-    args.str_version    = __version__
-    args.str_desc       = synopsis(True)
+def result_report(args: argparse.Namespace, result: RunResult) -> None:
+    """Print whatever the arguments asked for.
 
+    Args:
+        args: the parsed arguments.
+        result: the engine's result.
+    """
+    if args.json:
+        print(json.dumps(result.toDict(), indent=4, sort_keys=True))
+        return
+    if result.stats is not None:
+        if args.jsonStats:
+            print(json.dumps(result.toDict()["stats"], indent=4, sort_keys=True))
+        else:
+            duStyle: bool = args.du or args.duf
+            print(stats_render(result.stats, duStyle=duStyle, summary=not args.duf))
+    if args.printElapsedTime:
+        print(f"Elapsed time = {result.runTime:.6f} seconds")
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the command.
+
+    Args:
+        argv: arguments without the program name; ``None`` reads ``sys.argv``.
+
+    Returns:
+        The exit code: 0 on success, 1 when the run failed, 2 on bad arguments.
+    """
+    parser: argparse.ArgumentParser = parser_build()
+    args: argparse.Namespace = parser.parse_args(argv)
+    if args.man:
+        parser.print_help()
+        return 0
+    if args.synopsis:
+        parser.print_usage()
+        return 0
     try:
-        pf_tree             = pftree.pftree(vars(args))
-    except:
-        pf_tree             = pftree(vars(args))
+        options: TreeOptions = options_fromArgs(args)
+    except ValueError as err:
+        parser.error(str(err))
+    logging_configure(options.verbosity)
+    result: RunResult = Pftree(options).run()
+    result_report(args, result)
+    if result.error:
+        print(result.error, file=sys.stderr)
+    return 0 if result.status else 1
 
-    # And now run it!
-    d_pftree = pf_tree.run(timerStart = True)
-
-    if args.printElapsedTime and not args.json and not args.jsonStats:
-        pf_tree.dp.qprint(
-                            "Elapsed time = %f seconds" %
-                            d_pftree['runTime'], level = 0
-                        )
-
-    return 0
 
 if __name__ == "__main__":
     sys.exit(main())
