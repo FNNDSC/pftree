@@ -11,6 +11,7 @@ Key components:
     - DirNode, StageResult, ProcessResult, StatsResult, RunResult: typed results
     - models: every option and result type
     - filters: the ``--fileFilter`` / ``--dirFilter`` token grammar
+    - manual: the ``--man`` page renderer, reusable by commands built on pftree
     - __main__: the ``pftree`` command line, its manual, and the parser factories reused by pfdo
 
 Typical usage:
@@ -26,9 +27,10 @@ Dependencies:
 
 from __future__ import annotations
 
-__version__: str = "4.0.0"
+__version__: str = "4.1.0"
 
 from pftree.filters import FilterLogic, FilterToken, dirPath_matches, fileNames_filter, tokens_parse
+from pftree.manual import Manual, manual_print, manual_render
 from pftree.models import (
     DirNode,
     DirStat,
@@ -57,6 +59,7 @@ __all__ = [
     "FilterLogic",
     "FilterToken",
     "KeyedResult",
+    "Manual",
     "Pftree",
     "ProcessResult",
     "RunResult",
@@ -69,5 +72,7 @@ __all__ = [
     "__version__",
     "dirPath_matches",
     "fileNames_filter",
+    "manual_print",
+    "manual_render",
     "tokens_parse",
 ]

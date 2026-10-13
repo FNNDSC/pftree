@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 
 from pftree import __version__
-from pftree.__main__ import (
+from pftree.__main__ import main, manual_build, parser_build
+from pftree.manual import (
     BG_PAGE,
     FG_BANNER,
     FG_BODY,
@@ -24,9 +25,7 @@ from pftree.__main__ import (
     banner_render,
     cliLine_highlight,
     inlineCode_render,
-    main,
-    manual_colourize,
-    parser_build,
+    synopsis_colourize,
 )
 
 
@@ -134,7 +133,7 @@ def test_main_manPrintsFullManual(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_cliLine_highlight_coloursEachTokenKind() -> None:
     line: str = "        pftree --inputDir <inputDir> --fileFilter 'glob:*.dcm' \\"
-    coloured: str = cliLine_highlight(line)
+    coloured: str = cliLine_highlight(line, manual_build().cliToken_pattern())
     assert FG_COMMAND + "pftree" in coloured
     assert FG_FLAG + "--inputDir" in coloured
     assert FG_PLACEHOLDER + "<inputDir>" in coloured
@@ -143,7 +142,7 @@ def test_cliLine_highlight_coloursEachTokenKind() -> None:
 
 
 def test_banner_render_coloursArtTitleProseAndVersion() -> None:
-    page: list[str] = banner_render(colour=True, width=80).splitlines()
+    page: list[str] = banner_render(manual_build(), colour=True, width=80).splitlines()
     assert page[2].startswith(BG_PAGE + FG_BANNER)
     title: str = next(line for line in page if "Path-File tree structure" in line)
     assert title.startswith(BG_PAGE + FG_HEADING)
@@ -153,7 +152,7 @@ def test_banner_render_coloursArtTitleProseAndVersion() -> None:
     assert FG_VERSION + __version__ + FG_BODY in version
     bullet: str = next(line for line in page if "read input files" in line)
     assert FG_FLAG + "*" + FG_BODY in bullet
-    assert banner_render(colour=False).count("\033") == 0
+    assert banner_render(manual_build(), colour=False).count("\033") == 0
 
 
 def test_inlineCode_render_dropsBackticksAndColours() -> None:
@@ -171,7 +170,7 @@ def test_main_manHasNoBackticksWhenPiped(capsys: pytest.CaptureFixture[str]) -> 
 
 
 def test_manual_colourize_padsEveryLineToWidth() -> None:
-    page: str = manual_colourize("    NAME\n\n        pftree - x\n", width=40)
+    page: str = synopsis_colourize(manual_build(), "    NAME\n\n        pftree - x\n", width=40)
     for line in page.splitlines():
         assert line.startswith(BG_PAGE)
         assert line.endswith(NO_COLOUR)
