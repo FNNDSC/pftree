@@ -12,7 +12,7 @@ import pytest
 
 from pftree.__main__ import main
 from pftree.models import TreeOptions
-from pftree.tree import Pftree, TreeScanner, du_humanize, kilobytes_roundUp
+from pftree.tree import Pftree, TreeScanner, du_humanize, gil_isEnabled, kilobytes_roundUp
 
 DU: str | None = shutil.which("du")
 
@@ -149,3 +149,38 @@ def test_du_humanize_matchesDuStyle() -> None:
     assert du_humanize(1500 * 1024) == "1.5M"
     assert du_humanize(3 * 1024**3) == "3.0G"
     assert du_humanize(10 * 1024 - 1) == "10K"
+
+
+def test_scan_threadedMatchesSequential(tmp_path: Path) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    sequential = TreeScanner(inputDir, maxDepth=-1, followLinks=False).scan()
+    threaded = TreeScanner(inputDir, maxDepth=-1, followLinks=False, threads=4).scan()
+    assert [entry.path for entry in threaded.entries] == [entry.path for entry in sequential.entries]
+    assert [usage.path for usage in threaded.usage] == [usage.path for usage in sequential.usage]
+    assert threaded.usage[-1] == sequential.usage[-1]
+    assert sum(usage.diskBytes for usage in threaded.usage) == sum(
+        usage.diskBytes for usage in sequential.usage
+    )
+
+
+@pytest.mark.skipif(DU is None, reason="GNU du not installed")
+def test_du_threadedMatchesDuTotals(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    (inputDir / "a/deep/deeper/three.bin").unlink()  # no hard links shared across subtrees remain ambiguous
+    expected: list[str] = du_lines(inputDir, "-k")
+    threaded = TreeScanner(inputDir, maxDepth=-1, followLinks=False, threads=3).scan()
+    actualRoot: int = kilobytes_roundUp(threaded.usage[-1].diskBytes)
+    assert f"{actualRoot}\t{inputDir}" == expected[-1]
+
+
+def test_scanThreads_gatedOnGil(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    inputDir: Path = tree_make(tmp_path)
+    tree: Pftree = Pftree(TreeOptions(inputDir=inputDir, threads=4, verbosity=0))
+    with caplog.at_level("WARNING", logger="pftree"):
+        scanThreads: int = tree.scanThreads_get()
+    if gil_isEnabled():
+        assert scanThreads == 1
+        assert "free-threaded" in caplog.text
+    else:
+        assert scanThreads == 4
+    assert tree.run().status

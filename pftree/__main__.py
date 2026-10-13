@@ -301,20 +301,31 @@ ARGS_SYNOPSIS_CORE: str = """
         spec must contain exactly one '%s'.
 
         [--threads <numThreads>]
-        If specified, break the innermost analysis loop into <numThreads>
-        threads. Please note the following caveats:
+        If specified, use <numThreads> threads in two places:
 
-            * Only thread if you have a high CPU analysis loop. Note that
-              the input file read and output file write loops are not
-              threaded -- only the analysis loop is threaded. Thus, if the
-              bulk of execution time is in file IO, threading will not
-              really help.
+            * The scan of the <inputDir>: each first-level subdirectory is
+              walked by its own thread. This pays only on a free-threaded
+              Python (python3.13t and later, where threads run in parallel);
+              under the ordinary interpreter's global lock a threaded scan
+              is slower than a sequential one, so there the scan stays
+              single-threaded and a warning says so. With a threaded scan,
+              the directory a hard link shared between subtrees is charged
+              to can differ from du's choice; the totals do not.
 
-            * Threading will change the nature of the innermost looping
-              across the problem domain, with the result that *all* of the
-              problem data will be read into memory! That means potentially
-              all the target input file data across the entire input directory
-              tree.
+            * The innermost analysis loop, broken into <numThreads>
+              threads. Please note the following caveats:
+
+                - Only thread if you have a high CPU analysis loop. Note
+                  that the input file read and output file write loops are
+                  not threaded -- only the analysis loop is threaded. Thus,
+                  if the bulk of execution time is in file IO, threading
+                  will not really help.
+
+                - Threading will change the nature of the innermost looping
+                  across the problem domain, with the result that *all* of
+                  the problem data will be read into memory! That means
+                  potentially all the target input file data across the
+                  entire input directory tree.
 
         [--json]
         If specified, do a JSON dump of the entire return payload.
@@ -625,7 +636,11 @@ def parserCore_build() -> argparse.ArgumentParser:
         "--overwrite", dest="overwrite", action="store_true", help="allow overwriting existing output"
     )
     parser.add_argument(
-        "--threads", dest="threads", type=int, default=0, help="analyze-stage workers; 0 = sequential"
+        "--threads",
+        dest="threads",
+        type=int,
+        default=0,
+        help="workers for the scan (free-threaded Python only) and the analyze stage; 0 = sequential",
     )
     parser.add_argument("--verbosity", dest="verbosity", type=int, default=1, help="0 silences the console")
     parser.add_argument("--json", dest="json", action="store_true", help="print the full result as JSON")

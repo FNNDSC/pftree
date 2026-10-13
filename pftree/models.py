@@ -55,7 +55,8 @@ class TreeOptions:
             the full input path.
         followLinks: follow symbolic links while walking.
         overwrite: allow callbacks to overwrite existing output; read by subclasses.
-        threads: workers for the analyze stage; ``0`` runs it sequentially.
+        threads: workers for the scan (honoured on a free-threaded Python only) and
+            for the analyze stage; ``0`` runs both sequentially.
         verbosity: ``0`` silences the console; higher values show more.
         json: the caller wants machine output, so no progress bars.
         stats: compute the per-directory report, largest directory last.

@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
+import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -125,20 +127,89 @@ def entry_pointsToDir(entry: os.DirEntry[str]) -> bool:
         return False
 
 
+def gil_isEnabled() -> bool:
+    """Whether this interpreter runs with the global interpreter lock.
+
+    Returns:
+        True on an ordinary build, or on any Python before 3.13; False on a
+        free-threaded build (``python3.13t`` and later) where threads run in parallel.
+    """
+    probe: Callable[[], bool] | None = getattr(sys, "_is_gil_enabled", None)
+    if probe is None:
+        return True
+    return bool(probe())
+
+
+class InodeLedger:
+    """The inodes a scan has already counted, shared by every thread of the scan.
+
+    Attributes:
+        files: ``(st_dev, st_ino)`` of files already charged to a directory.
+        dirs: ``(st_dev, st_ino)`` of directories entered through symbolic links.
+        lock: guards both sets; uncontended in a single-threaded scan.
+
+    Example:
+        >>> ledger = InodeLedger()
+        >>> ledger.file_claim((1, 2)), ledger.file_claim((1, 2))
+        (True, False)
+    """
+
+    def __init__(self) -> None:
+        self.files: set[tuple[int, int]] = set()
+        self.dirs: set[tuple[int, int]] = set()
+        self.lock: threading.Lock = threading.Lock()
+
+    def file_claim(self, inode: tuple[int, int]) -> bool:
+        """Claim a file inode for the caller.
+
+        Args:
+            inode: ``(st_dev, st_ino)``.
+
+        Returns:
+            True the first time the inode is claimed, False after.
+        """
+        with self.lock:
+            if inode in self.files:
+                return False
+            self.files.add(inode)
+            return True
+
+    def dir_claim(self, inode: tuple[int, int]) -> bool:
+        """Claim a directory inode reached through a link.
+
+        Args:
+            inode: ``(st_dev, st_ino)``.
+
+        Returns:
+            True the first time the inode is claimed, False after.
+        """
+        with self.lock:
+            if inode in self.dirs:
+                return False
+            self.dirs.add(inode)
+            return True
+
+
+SubdirHandler = Callable[[Path, FileSize, int], DirUsage | None]
+
+
 class TreeScanner:
     """One pass over a directory tree: entries top-down, usage post-order.
 
     Every entry is ``lstat``-ed once, through ``os.scandir``, during the walk; nothing
     is revisited. Hard-linked files count once towards usage, as ``du`` counts them.
+    With ``threads`` above one, each first-level subdirectory is scanned by its own
+    worker; that pays only on a free-threaded Python (see ``gil_isEnabled``), and the
+    directory a hard link shared between subtrees is charged to then depends on timing.
 
     Attributes:
         root: where the scan starts.
         maxDepth: levels below ``root`` to descend; ``-1`` for all, ``0`` for root only.
         followLinks: descend into symbolic links to directories, each target once.
+        threads: workers for the first-level subdirectories; ``1`` scans in order.
         entries: the directories in scan order, filled by ``scan``.
         usage: the directories in post-order with the root last, filled by ``scan``.
-        seenInodes: ``(st_dev, st_ino)`` of hard-linked files already counted.
-        seenDirs: ``(st_dev, st_ino)`` of directories entered through links.
+        ledger: the inodes counted so far, shared with the workers.
 
     Example:
         >>> scan = TreeScanner(Path("."), maxDepth=0, followLinks=False).scan()
@@ -146,41 +217,92 @@ class TreeScanner:
         PosixPath('.')
     """
 
-    def __init__(self, root: Path, maxDepth: int, followLinks: bool) -> None:
+    def __init__(
+        self,
+        root: Path,
+        maxDepth: int,
+        followLinks: bool,
+        threads: int = 1,
+        ledger: InodeLedger | None = None,
+    ) -> None:
         self.root: Path = root
         self.maxDepth: int = maxDepth
         self.followLinks: bool = followLinks
+        self.threads: int = threads
         self.entries: list[WalkEntry] = []
         self.usage: list[DirUsage] = []
-        self.seenInodes: set[tuple[int, int]] = set()
-        self.seenDirs: set[tuple[int, int]] = set()
+        self.ledger: InodeLedger = ledger if ledger is not None else InodeLedger()
 
     def scan(self) -> TreeScan:
-        """Run the scan.
+        """Run the scan, threaded across the first level when ``threads`` allows.
 
         Returns:
             The entries and the usage lines.
         """
         rootStatus: os.stat_result = os.lstat(self.root)
+        rootSize: FileSize = fileSize_fromStat(rootStatus)
         if self.followLinks:
-            self.seenDirs.add((rootStatus.st_dev, rootStatus.st_ino))
-        self.dir_scan(self.root, fileSize_fromStat(rootStatus), depth=0)
+            self.ledger.dir_claim((rootStatus.st_dev, rootStatus.st_ino))
+        if self.threads > 1:
+            self.scan_threaded(rootSize)
+        else:
+            self.dir_scan(self.root, rootSize, depth=0, onSubdir=self.subdir_scan)
         return TreeScan(entries=self.entries, usage=self.usage)
 
-    def dir_scan(self, path: Path, dirSize: FileSize, depth: int) -> DirUsage:
+    def scan_threaded(self, rootSize: FileSize) -> None:
+        """Scan the root in this thread and each first-level subdirectory in a worker.
+
+        The entries and usage lines are assembled in directory order afterwards, so
+        the output order matches the sequential scan's.
+
+        Args:
+            rootSize: the root directory's own sizes.
+        """
+        pending: list[tuple[Path, FileSize]] = []
+
+        def subdir_defer(path: Path, size: FileSize, depth: int) -> DirUsage | None:
+            pending.append((path, size))
+            return None
+
+        rootUsage: DirUsage = self.dir_scan(self.root, rootSize, depth=0, onSubdir=subdir_defer)
+        rootEntry: WalkEntry = self.entries[0]
+        self.entries = [rootEntry]
+        self.usage = []
+
+        def subtree_scan(job: tuple[Path, FileSize]) -> TreeScanner:
+            worker: TreeScanner = TreeScanner(self.root, self.maxDepth, self.followLinks, ledger=self.ledger)
+            worker.dir_scan(job[0], job[1], depth=1, onSubdir=worker.subdir_scan)
+            return worker
+
+        with ThreadPoolExecutor(max_workers=self.threads) as pool:
+            for worker in pool.map(subtree_scan, pending):
+                self.entries.extend(worker.entries)
+                self.usage.extend(worker.usage)
+                rootUsage.diskBytes += worker.usage[-1].diskBytes
+                rootUsage.apparentBytes += worker.usage[-1].apparentBytes
+        self.usage.append(rootUsage)
+
+    def subdir_scan(self, path: Path, size: FileSize, depth: int) -> DirUsage:
+        """The sequential subdirectory handler: descend at once."""
+        return self.dir_scan(path, size, depth, onSubdir=self.subdir_scan)
+
+    def dir_scan(self, path: Path, dirSize: FileSize, depth: int, onSubdir: SubdirHandler) -> DirUsage:
         """Scan one directory and, within the depth bound, everything below it.
+
+        Entries are handled in directory order; a subdirectory is handed to
+        ``onSubdir`` the moment it is met, which is the order ``du`` charges hard
+        links in when the handler descends at once.
 
         Args:
             path: the directory.
             dirSize: its own sizes, from the parent's ``lstat`` of it.
             depth: how many levels below the root it sits.
-
-        Entries are handled in directory order, descending into a subdirectory the
-        moment it is met, which is the order ``du`` charges hard links in.
+            onSubdir: called for each subdirectory to descend into; returns its
+                cumulative usage, or None when it will be scanned later.
 
         Returns:
             The directory's cumulative usage; also appended to ``usage`` after the
-            usage of every subdirectory.
+            usage of every subdirectory the handler scanned.
         """
         fileNames: list[str] = []
         fileSizes: dict[str, FileSize] = {}
@@ -202,11 +324,12 @@ class TreeScanner:
                         if descend:
                             if isLink:
                                 status, isLink = self.link_resolve(entry, status)
-                            below: DirUsage = self.dir_scan(
+                            below: DirUsage | None = onSubdir(
                                 Path(entry.path), fileSize_fromStat(status, isLink), depth + 1
                             )
-                            diskBytes += below.diskBytes
-                            apparentBytes += below.apparentBytes
+                            if below is not None:
+                                diskBytes += below.diskBytes
+                                apparentBytes += below.apparentBytes
                         continue
                     if isLink and self.followLinks:
                         status, isLink = self.link_resolve(entry, status)
@@ -214,11 +337,12 @@ class TreeScanner:
                     fileSizes[entry.name] = size
                     if not entry_pointsToDir(entry):
                         fileNames.append(entry.name)
-                    if not isLink and (status.st_nlink > 1 or self.followLinks):
-                        inode: tuple[int, int] = (status.st_dev, status.st_ino)
-                        if inode in self.seenInodes:
-                            continue
-                        self.seenInodes.add(inode)
+                    if (
+                        not isLink
+                        and (status.st_nlink > 1 or self.followLinks)
+                        and not self.ledger.file_claim((status.st_dev, status.st_ino))
+                    ):
+                        continue
                     diskBytes += size.diskBytes
                     apparentBytes += size.apparentBytes
         except OSError as err:
@@ -267,11 +391,7 @@ class TreeScanner:
         except OSError as err:
             logger.warning("cannot follow %s: %s", entry.path, err.strerror)
             return False
-        inode: tuple[int, int] = (target.st_dev, target.st_ino)
-        if inode in self.seenDirs:
-            return False
-        self.seenDirs.add(inode)
-        return True
+        return self.ledger.dir_claim((target.st_dev, target.st_ino))
 
 
 def tree_walk(root: Path, maxDepth: int, followLinks: bool) -> Iterator[WalkEntry]:
@@ -477,7 +597,7 @@ class Pftree:
             One DirNode per directory with at least one (``inputFile``-matching) file.
         """
         scan: TreeScan = TreeScanner(
-            self.options.inputDir, self.options.maxDepth, self.options.followLinks
+            self.options.inputDir, self.options.maxDepth, self.options.followLinks, self.scanThreads_get()
         ).scan()
         self.usage = scan.usage
         nodes: list[DirNode] = []
@@ -487,6 +607,27 @@ class Pftree:
                 nodes.append(node)
         logger.info("probed %d directories with files under %s", len(nodes), self.options.inputDir)
         return nodes
+
+    def scanThreads_get(self) -> int:
+        """How many threads the scan may use.
+
+        ``threads`` applies to the scan only on a free-threaded Python; under the
+        global interpreter lock a threaded scan is slower than a sequential one, so
+        the request is logged and the scan runs in one thread.
+
+        Returns:
+            ``options.threads`` on a free-threaded build, else 1.
+        """
+        if self.options.threads <= 1:
+            return 1
+        if gil_isEnabled():
+            logger.warning(
+                "--threads %d: the scan runs single-threaded under the GIL; "
+                "use a free-threaded Python (3.13t or later)",
+                self.options.threads,
+            )
+            return 1
+        return self.options.threads
 
     def du_compute(self) -> DuReport:
         """The ``du`` report from the last scan.
