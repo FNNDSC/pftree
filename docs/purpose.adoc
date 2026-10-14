@@ -37,6 +37,8 @@ What pftree does not offer is `PathMapper`'s per-file mapping and output renamin
 
 The choice, then, is by the plugin's unit of work. One file in, one file out: `PathMapper`. One operation per directory, with filters, failure isolation and parallelism wanted: pftree. The members of the pfdo and pfdicom families are the second kind, which is why they are built here.
 
+This compares the two as walkers. The comparison a tool author needs, the same conversion written as a PathMapper loop and as a pfdo subclass and what each leaves to the author, is made one layer up, in pfdo's purpose document.
+
 == Who uses it
 
 pftree is the base of two families. The `pfdo` family (`pfdo`, `pfdo_run`, `pfdo_med2image`, `pfdo_mgz2image`, `pfdo_mri_unet`) subclasses it to run one operation per directory. The `pfdicom` family (`pfdicom`, `pfdicom_tagExtract`, `pfdicom_tagSub`, `pfdicom_rev`, `pfdicom_agesort`) subclasses it to read, rewrite and summarize DICOM headers per series. The ChRIS plugins built on those (`pl-shexec`, `pl-pfdicom_tagExtract`, `pl-pfdicom_tagSub` and others) inherit the walk, the filters and the failure semantics, which is the point.
