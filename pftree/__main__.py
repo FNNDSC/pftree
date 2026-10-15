@@ -173,101 +173,84 @@ ARGS_SYNOPSIS_SELF: str = """
 ARGS_SYNOPSIS_IO: str = """
 
         --inputDir <inputDir>
-        Input directory to examine. The downstream nested structure of this
-        directory is examined and recreated in the <outputDir>.
+        The input tree. The <inputDir> and every directory under it, at any
+        depth, are candidates for processing.
 
         [--outputDir <outputDir>]
-        The directory to contain a tree structure identical to the input
-        tree structure, and which contains all output files from the
-        per-input-dir processing.
+        The output tree. Each directory processed in the <inputDir> has a
+        directory at the same relative path here, which receives its
+        results.
 """
 
 ARGS_SYNOPSIS_DS: str = """
 
         <inputDir>
-        A _required_ positional argument for ChRIS DS plugins denoting the
-        input directory to examine. The downstream nested structure of this
-        directory is examined and recreated in the <outputDir>.
+        Required, first positional argument: the input tree. The <inputDir>
+        and every directory under it, at any depth, are candidates for
+        processing.
 
         <outputDir>
-        A _required_ positional argument for ChRIS DS plugins denoting the
-        output directory to store data. The structure of this tree mimics
-        that of the <inputDir>, with correspondant directory nodes containing
-        the results of corresponding <inputDir> processing.
+        Required, second positional argument: the output tree. Each
+        directory processed in the <inputDir> has a directory at the same
+        relative path here, which receives its results.
 """
 
 ARGS_SYNOPSIS_CORE: str = """
 
         [--maxDepth <dirDepth>]
-        The maximum depth to descend relative to the <inputDir>. Note, that
-        this counts from zero! Default of '-1' implies traverse the entire
-        directory tree.
+        How many levels below the <inputDir> to descend: 0 is the <inputDir>
+        alone, 1 adds its subdirectories, and so on. The default, -1, walks
+        the whole tree.
 
         [--relativeDir]
-        A flag argument. If passed (i.e. True), then the dictionary key values
-        are taken to be relative to the <inputDir>, i.e. the key values
-        will not contain the <inputDir>; otherwise the key values will
-        contain the <inputDir>.
+        Name directories by their path relative to the <inputDir> in the
+        --json record, sub-01 rather than /incoming/sub-01. It changes
+        nothing else.
 
         [--inputFile <inputFile>]
-        An optional substring. If specified, only files whose names contain
-        this substring are listed in the tree; every other file is ignored
-        before any filter is applied.
+        Consider only files whose names contain this substring; every other
+        file is ignored before the filters apply.
 
         [--fileFilter <token1,token2,...>]
-        An optional comma-delimited list of tokens to filter the files of
-        interest from the <inputDir> tree. Each token is applied over the
-        files in a directory, and only files that satisfy the tokens (under
-        the --fileFilterLogic) are preserved. A token is one of:
+        Keep only the files whose names pass these comma-separated tokens;
+        a directory left with no file is not processed. A token is one of:
 
             nii                 substring: the file name contains 'nii'
             glob:*.nii.gz       a shell glob over the whole file name
             re:^sub-\\d+$        a regular expression, searched anywhere
             !tmp                negation of any of the above forms
 
-        Thus, a --fileFilter of "png,jpg,body" keeps files containing "png"
-        OR "jpg" OR "body"; a --fileFilter of "glob:*.nii.gz,!tmp" with
-        --fileFilterLogic AND keeps the gzipped NIfTI files that do not
-        contain "tmp".
+        With --fileFilterLogic OR, the default, a file passing any token is
+        kept; with AND, only a file passing every token. So "png,jpg" keeps
+        PNG and JPEG files, and "glob:*.nii.gz,!tmp" with AND keeps the
+        gzipped NIfTI files whose names do not contain "tmp".
 
         [--fileFilterLogic AND|OR]
-        The logical operator to apply across the fileFilter tokens. Default
-        is OR.
+        How --fileFilter's tokens combine: OR, the default, or AND.
 
         [--dirFilter <token1,token2,...>]
-        An additional filter that will further limit any files to process to
-        only those files that exist in directories whose path satisfies the
-        tokens. The same token forms as --fileFilter apply. The path tested
-        is the directory's path relative to the <inputDir>, with '/' as the
-        separator, so the name of the <inputDir> itself never matches, and
+        Keep only the directories whose path passes these tokens, of the
+        same forms as --fileFilter's. The path is the directory's path
+        relative to the <inputDir>, with '/' between components, so the
+        <inputDir>'s own name is never part of it, and
 
             --dirFilter 're:/anat$'
             --dirFilter 'glob:*/anat'
 
-        anchor on a path component. A directory filter of "100307,100556"
-        and a file filter of "png,jpg" reduce the space to ONLY files that
-        have an ancestor directory containing "100307" OR "100556" AND that
-        contain either "png" OR "jpg" in their file names: the relationship
-        between the file and directory filters is always AND.
+        anchor on a component. A file is processed only when its directory
+        passes --dirFilter and its name passes --fileFilter.
 
         [--dirFilterLogic AND|OR]
-        The logical operator to apply across the dirFilter tokens. Default
-        is OR.
+        How --dirFilter's tokens combine: OR, the default, or AND.
 
         [--outputLeafDir <outputLeafDirFormat>]
-        If specified, will apply the <outputLeafDirFormat> to the output
-        directories containing data. This is useful to blanket describe
-        final output directories with some descriptive text, such as
-        'anon' or 'preview'.
-
-        This is a formatting spec, so
+        Rename the last component of each output directory with a pattern
+        in which %s stands for the input directory's name, so that
 
             --outputLeafDir 'preview-%s'
 
-        where %s is the original leaf directory node, will prefix each
-        final directory containing output with the text 'preview-' which
-        can be useful in describing some features of the output set. The
-        spec must contain exactly one '%s'.
+        writes the results for /incoming/sub-01 to /outgoing/preview-sub-01.
+        The pattern must contain exactly one %s.
 
         [--threads <numThreads>]
         Analyze up to <numThreads> directories at once, in a pool of
@@ -291,32 +274,35 @@ ARGS_SYNOPSIS_CORE: str = """
         and balances the workers. Clamped to --maxDepth.
 
         [--json]
-        If specified, do a JSON dump of the entire return payload.
+        Print the run's whole record as JSON on standard output when it
+        ends: the directories found and their files, and each stage's result
+        per directory.
 
         [--followLinks]
-        If specified, follow symbolic links.
+        Descend into symbolic links to directories, each target once;
+        without it a link to a directory is not entered.
 
         [--overwrite]
-        If specified, allow for overwriting of existing files.
+        Let the run replace output files that already exist. It governs the
+        files the tool writes itself, such as --test's; a program the tool
+        runs decides for itself whether to overwrite.
 
         [--printElapsedTime]
-        If specified, print the run time at the end.
+        Print how long the run took, in seconds, when it ends.
 
         [--man]
-        Show full help.
+        Print this manual and exit.
 
         [--synopsis]
-        Show brief help.
+        Print the manual's NAME, SYNOPSIS and brief example and exit.
 
         [--verbosity <level>]
-        Set the app verbosity level. This ranges from 0...<N> where internal
-        log messages with a level=<M> will only display if M <= N. In this
-        manner increasing the level here can be used to show more and more
-        debugging info, assuming that debug messages in the code have been
-        tagged with a level. A verbosity of 0 also silences progress bars.
+        How much to say on the console: 0 errors only and no progress bars;
+        1, the default, warnings and progress bars; 2 also what each stage
+        is doing; 3 and above, debugging detail.
 
         [--version]
-        Print the version number and exit.
+        Print the name and version and exit.
 """
 
 EXAMPLES: str = """
