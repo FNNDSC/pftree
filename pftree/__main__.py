@@ -140,7 +140,9 @@ ARGS_SYNOPSIS_SELF: str = """
         disk blocks (st_blocks), hard links are counted once, symbolic links
         count as themselves, and filters do not apply (du has none). With
         --maxDepth the deeper levels are not scanned, so the totals exclude
-        them.
+        them. With a threaded scan, the directory a hard link shared between
+        subtrees is charged to can differ from du's choice; the totals do
+        not.
 
         [--apparentSize]
         With --du or --duf, count each entry's st_size instead of its disk
@@ -268,40 +270,25 @@ ARGS_SYNOPSIS_CORE: str = """
         spec must contain exactly one '%s'.
 
         [--threads <numThreads>]
-        If specified, use <numThreads> threads in two places:
+        Analyze up to <numThreads> directories at once, in a pool of
+        threads; 0, the default, analyzes one directory at a time. The read
+        stage before the analysis and the write stage after it stay
+        sequential. A pool pays when each analysis waits on something
+        outside Python, such as a program it runs, as pfdo_run's commands
+        do; analysis in Python itself runs in parallel only on a
+        free-threaded Python (python3.13t and later).
 
-            * The scan of the <inputDir>: each first-level subdirectory is
-              walked by its own thread. This pays only on a free-threaded
-              Python (python3.13t and later, where threads run in parallel);
-              under the ordinary interpreter's global lock a threaded scan
-              is slower than a sequential one, so there the scan stays
-              single-threaded and a warning says so. With a threaded scan,
-              the directory a hard link shared between subtrees is charged
-              to can differ from du's choice; the totals do not.
+        On a free-threaded Python the same number of threads also scans the
+        <inputDir>, dividing the tree at --threadsSplit. Under the ordinary
+        interpreter the scan stays single-threaded and a warning says so.
 
         [--threadsSplit <level>]
-        The directory level at which the scan's threads divide the tree:
-        the directories at that level below the <inputDir> become the
-        workers' jobs, while the levels above are walked by the main
-        thread. Level 1 (the default) gives one job per first-level
-        subdirectory; when one of those holds most of the files, level 2
-        or 3 divides it further and balances the workers. Clamped to
-        --maxDepth.
-
-            * The innermost analysis loop, broken into <numThreads>
-              threads. Please note the following caveats:
-
-                - Only thread if you have a high CPU analysis loop. Note
-                  that the input file read and output file write loops are
-                  not threaded -- only the analysis loop is threaded. Thus,
-                  if the bulk of execution time is in file IO, threading
-                  will not really help.
-
-                - Threading will change the nature of the innermost looping
-                  across the problem domain, with the result that *all* of
-                  the problem data will be read into memory! That means
-                  potentially all the target input file data across the
-                  entire input directory tree.
+        The directory level at which a threaded scan divides the tree: the
+        directories at that level below the <inputDir> become the workers'
+        jobs, while the levels above are walked by the main thread. Level 1
+        (the default) gives one job per first-level subdirectory; when one
+        of those holds most of the files, level 2 or 3 divides it further
+        and balances the workers. Clamped to --maxDepth.
 
         [--json]
         If specified, do a JSON dump of the entire return payload.
