@@ -35,7 +35,7 @@ import sys
 from collections.abc import Sequence
 
 from pftree import __version__
-from pftree.manual import Manual, manual_print
+from pftree.manual import Manual, ManualAction, manual_attach
 from pftree.models import DuReport, RunResult, StatsResult, TreeOptions
 from pftree.tree import Pftree, du_humanize
 
@@ -552,9 +552,9 @@ def parserCore_build(command: str = "pftree", version: str = __version__) -> arg
     parser.add_argument(
         "--printElapsedTime", dest="printElapsedTime", action="store_true", help="print the run time"
     )
-    parser.add_argument("--man", dest="man", action="store_true", help="show the full manual and exit")
+    parser.add_argument("--man", dest="man", action=ManualAction, help="show the full manual and exit")
     parser.add_argument(
-        "--synopsis", dest="synopsis", action="store_true", help="show the brief manual and exit"
+        "--synopsis", dest="synopsis", action=ManualAction, help="show the brief manual and exit"
     )
     parser.add_argument("--version", action="version", version=f"{command} {version}")
     return parser
@@ -601,18 +601,21 @@ def parser_build(standalone: bool = True) -> argparse.ArgumentParser:
             plugin passes False and adds its own positional directories.
 
     Returns:
-        The parser; ``--help`` is the quick reference and points at ``--man``.
+        The parser; ``--help`` is the quick reference and points at ``--man``, which
+        with ``--synopsis`` prints pftree's manual and exits as it is read.
     """
     parents: list[argparse.ArgumentParser] = [parserCore_build(), parserSelf_build()]
     if standalone:
         parents.insert(0, parserIO_build())
-    return argparse.ArgumentParser(
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
         prog="pftree",
         description="Create a dictionary representation of a filesystem tree. Full manual: pftree --man",
         epilog="Filter tokens: substring, 'glob:<pattern>', 're:<regex>', each negatable with a leading '!'.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=parents,
     )
+    manual_attach(parser, manual_build())
+    return parser
 
 
 def options_fromArgs(args: argparse.Namespace) -> TreeOptions:
@@ -713,9 +716,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser: argparse.ArgumentParser = parser_build()
     args: argparse.Namespace = parser.parse_args(argv)
-    if args.man or args.synopsis:
-        manual_print(manual_build(), shortOnly=not args.man)
-        return 0
     if not args.inputDir:
         parser.error("--inputDir is required")
     try:

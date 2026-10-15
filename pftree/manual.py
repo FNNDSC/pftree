@@ -12,11 +12,14 @@ Key components:
     - manual_render: the page as text, coloured or plain
     - manual_print: render to stdout, colouring when it is a terminal
     - cliLine_highlight, inlineCode_render: the inline colouring rules
+    - ManualAction, manual_attach: ``--man`` / ``--synopsis`` that print and exit while
+      the command line is parsed, so they need none of the command's required arguments
 
 Typical usage:
     MANUAL = Manual(command="pfdo", art=ART, title="Path-File Do", text=TEXT,
                     version=__version__, synopsisShort=short, synopsisFull=full)
     manual_print(MANUAL, shortOnly=False)
+    manual_attach(parser, MANUAL)    # parser.parse_args(["--man"]) prints it and exits 0
 
 Dependencies:
     - standard library only
@@ -24,6 +27,7 @@ Dependencies:
 
 from __future__ import annotations
 
+import argparse
 import re
 import shutil
 import sys
@@ -256,3 +260,57 @@ def manual_print(manual: Manual, shortOnly: bool) -> None:
     """
     colour: bool = sys.stdout.isatty()
     print(manual_render(manual, shortOnly, colour, page_width() if colour else FALLBACK_WIDTH))
+
+
+class ManualAction(argparse._StoreTrueAction):
+    """``--man`` or ``--synopsis``: print the attached manual and exit, as ``--version`` does.
+
+    argparse checks required arguments only after it has read the whole command line,
+    so a flag that is merely stored cannot spare a ChRIS plugin its ``inputdir
+    outputdir``; one that acts as it is read can. With no manual attached it stores
+    True like the plain flag it replaces, and the command handles it after parsing.
+    It subclasses ``_StoreTrueAction`` because chris_plugin describes a flag to ChRIS
+    by its action's class and refuses classes it does not know.
+
+    Attributes:
+        manual: the page to print; ``None`` until ``manual_attach`` sets it.
+    """
+
+    manual: Manual | None = None
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: str | None = None,
+    ) -> None:
+        if self.manual is None:
+            super().__call__(parser, namespace, values, option_string)
+            return
+        manual_print(self.manual, shortOnly=self.dest == "synopsis")
+        parser.exit(0)
+
+
+def manual_attach(parser: argparse.ArgumentParser, manual: Manual) -> None:
+    """Give a parser's ``--man`` and ``--synopsis`` the page they print.
+
+    A parser built on another, as pfdo's on pftree's, attaches its own page over the
+    one beneath it; the last attached is the one printed.
+
+    Args:
+        parser: a parser whose ``--man`` / ``--synopsis`` are ``ManualAction``.
+        manual: the page.
+
+    Example:
+        >>> p = argparse.ArgumentParser(); _ = p.add_argument("--man", action=ManualAction)
+        >>> manual_attach(p, Manual("x", "", "X", "", "1", "short", "full"))
+        >>> p.parse_args(["--man"])
+        Traceback (most recent call last):
+        SystemExit: 0
+    """
+    # argparse keeps a parser's actions in the private _actions list; chris_plugin
+    # reads the same list, and it is stable from Python 3.11 to 3.14.
+    for action in parser._actions:
+        if isinstance(action, ManualAction):
+            action.manual = manual

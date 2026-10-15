@@ -27,10 +27,10 @@ Dependencies:
 
 from __future__ import annotations
 
-__version__: str = "4.1.1"
+__version__: str = "4.2.0"
 
 from pftree.filters import FilterLogic, FilterToken, dirPath_matches, fileNames_filter, tokens_parse
-from pftree.manual import Manual, manual_print, manual_render
+from pftree.manual import Manual, ManualAction, manual_attach, manual_print, manual_render
 from pftree.models import (
     DirNode,
     DirStat,
@@ -60,6 +60,7 @@ __all__ = [
     "FilterToken",
     "KeyedResult",
     "Manual",
+    "ManualAction",
     "Pftree",
     "ProcessResult",
     "RunResult",
@@ -72,6 +73,7 @@ __all__ = [
     "__version__",
     "dirPath_matches",
     "fileNames_filter",
+    "manual_attach",
     "manual_print",
     "manual_render",
     "tokens_parse",

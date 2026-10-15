@@ -23,6 +23,8 @@ Version 4.0.0, released on 13 October 2026, kept the engine's job and its comman
 
 Version 4.1.0, the same month, moved the manual renderer into `pftree.manual` so that pfdo and the packages below it could render their own pages with it rather than copy the code.
 
+Version 4.2.0, in October, made `--man` and `--synopsis` act as they are read. The occasion was `shexec --man`, which failed with argparse's complaint that `inputdir` and `outputdir` were required: `chris_plugin` adds the two as positionals, and a store-true flag is only looked at after argparse has checked for them. The fix was put in pftree, where the two flags are defined, so that every parser built on its core parser gets it: `ManualAction` prints the page `manual_attach` gave it and exits, as `--version` does, and stores `True` when no page was given, so a dependent not yet rebuilt behaves as before. pftree's own `main` no longer handles the flags after parsing.
+
 == Consequences for dependents
 
 Version 4 owes no compatibility to 3.x, by decision: the packages that depend on pftree are the lab's own, their built images are frozen, and each is repaired when it is next rebuilt. pfdo 6 is the first, rebuilt on 4.1; pfdo_run and the pfdicom family follow.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 from pathlib import Path
@@ -22,6 +23,7 @@ from pftree.manual import (
     FG_STRING,
     FG_VERSION,
     NO_COLOUR,
+    ManualAction,
     banner_render,
     cliLine_highlight,
     inlineCode_render,
@@ -119,8 +121,14 @@ def test_main_inputDirRequiredUnlessManual() -> None:
     assert exc.value.code == 2
 
 
+def manual_run(argv: list[str]) -> int:
+    with pytest.raises(SystemExit) as exc:
+        main(argv)
+    return int(exc.value.code or 0)
+
+
 def test_main_manPrintsFullManual(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["--man"]) == 0
+    assert manual_run(["--man"]) == 0
     out: str = capsys.readouterr().out
     assert "Path-File tree structure" in out
     assert __version__ in out
@@ -165,7 +173,7 @@ def test_inlineCode_render_dropsBackticksAndColours() -> None:
 
 
 def test_main_manHasNoBackticksWhenPiped(capsys: pytest.CaptureFixture[str]) -> None:
-    main(["--man"])
+    manual_run(["--man"])
     assert "``" not in capsys.readouterr().out
 
 
@@ -180,11 +188,32 @@ def test_manual_colourize_padsEveryLineToWidth() -> None:
 
 
 def test_main_synopsisPrintsBriefManual(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["--synopsis"]) == 0
+    assert manual_run(["--synopsis"]) == 0
     out: str = capsys.readouterr().out
     assert "SYNOPSIS" in out
     assert "BRIEF EXAMPLE" in out
     assert "DESCRIPTION" not in out
+
+
+def test_parser_dsStyleManNeedsNoDirectories(capsys: pytest.CaptureFixture[str]) -> None:
+    parser = parser_build(standalone=False)
+    parser.add_argument("inputdir")
+    parser.add_argument("outputdir")
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["--man"])
+    assert exc.value.code == 0
+    assert "DESCRIPTION" in capsys.readouterr().out
+
+
+def test_manualAction_storesTrueWithoutManual() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--man", dest="man", action=ManualAction)
+    assert parser.parse_args(["--man"]).man is True
+    assert parser.parse_args([]).man is False
+
+
+def test_manualAction_isStoreTrueForChrisPlugin() -> None:
+    assert isinstance(ManualAction(["--man"], "man"), argparse._StoreTrueAction)
 
 
 def test_main_helpPointsAtMan(capsys: pytest.CaptureFixture[str]) -> None:
